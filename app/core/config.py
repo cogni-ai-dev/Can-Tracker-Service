@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     pii_search_hash_key: SecretStr | None = Field(default=None, alias="PII_SEARCH_HASH_KEY")
     session_cookie_name: str = Field(default="can_tracker_session", alias="SESSION_COOKIE_NAME")
     session_cookie_secure: bool = Field(default=False, alias="SESSION_COOKIE_SECURE")
+    session_ttl_seconds: int = Field(default=8 * 60 * 60, alias="SESSION_TTL_SECONDS")
     cors_origins: str = Field(default="", alias="CORS_ORIGINS")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
@@ -64,7 +65,16 @@ class Settings(BaseSettings):
         if missing:
             joined = ", ".join(missing)
             raise ValueError(f"Missing required settings outside test mode: {joined}")
+        if self.app_env not in {"local", "dev", "development"} and not self.session_cookie_secure:
+            raise ValueError("SESSION_COOKIE_SECURE must be true outside local and test environments.")
         return self
+
+    @field_validator("session_ttl_seconds")
+    @classmethod
+    def validate_session_ttl_seconds(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("SESSION_TTL_SECONDS must be greater than zero.")
+        return value
 
     @property
     def cors_origin_list(self) -> list[str]:

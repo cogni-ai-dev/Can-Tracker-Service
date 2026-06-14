@@ -7,6 +7,7 @@ from app.domain.enums import (
     ReportType,
     TaskPriority,
     TaskType,
+    UserRole,
     VerificationStatus,
 )
 
@@ -42,6 +43,9 @@ class EnumLabelTests(unittest.TestCase):
 
     def test_change_source_labels_are_canonical(self) -> None:
         self.assertEqual(ChangeSource.values(), ("manual", "import", "mfu_api"))
+
+    def test_user_role_values_are_api_ready(self) -> None:
+        self.assertEqual(UserRole.values(), ("admin", "ops", "rm", "management"))
 
     def test_task_priority_values_are_api_ready(self) -> None:
         self.assertEqual(TaskPriority.values(), ("high", "medium", "low"))

@@ -58,3 +58,10 @@ class ChangeSource(CanonicalStrEnum):
     MANUAL = "manual"
     IMPORT = "import"
     MFU_API = "mfu_api"
+
+
+class UserRole(CanonicalStrEnum):
+    ADMIN = "admin"
+    OPS = "ops"
+    RM = "rm"
+    MANAGEMENT = "management"

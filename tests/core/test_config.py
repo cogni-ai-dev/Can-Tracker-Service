@@ -34,3 +34,28 @@ def test_non_test_settings_accept_required_environment_values() -> None:
     assert settings.app_env == "local"
     assert settings.log_level == "DEBUG"
     assert settings.cors_origin_list == ["http://127.0.0.1:8000", "http://localhost:8000"]
+
+
+def test_secure_session_cookies_are_required_outside_local_and_test() -> None:
+    with pytest.raises(ValidationError, match="SESSION_COOKIE_SECURE"):
+        Settings(
+            app_env="production",
+            app_secret_key="production-secret",
+            database_url="postgresql+psycopg://user:pass@localhost:5432/can_tracker",
+            pii_encryption_key="production-pii-encryption-key",
+            pii_search_hash_key="production-pii-search-hash-key",
+            session_cookie_secure=False,
+        )
+
+
+def test_production_settings_accept_secure_session_cookies() -> None:
+    settings = Settings(
+        app_env="production",
+        app_secret_key="production-secret",
+        database_url="postgresql+psycopg://user:pass@localhost:5432/can_tracker",
+        pii_encryption_key="production-pii-encryption-key",
+        pii_search_hash_key="production-pii-search-hash-key",
+        session_cookie_secure=True,
+    )
+
+    assert settings.session_cookie_secure is True

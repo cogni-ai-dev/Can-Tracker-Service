@@ -21,6 +21,7 @@ from app.domain.enums import (
     ReportType,
     TaskPriority,
     TaskType,
+    UserRole,
     VerificationStatus,
 )
 from app.domain.reports import (
@@ -48,6 +49,7 @@ __all__ = [
     "ReportType",
     "TaskPriority",
     "TaskType",
+    "UserRole",
     "VerificationMetrics",
     "VerificationStatus",
     "build_report_rows",

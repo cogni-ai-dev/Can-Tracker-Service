@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.core.database import clear_database_caches, get_engine, get_sessionmaker
-from app.models.base import Base
+from app.models import Base
 
 
 @pytest.fixture(autouse=True)
@@ -39,7 +39,7 @@ def db_engine(test_settings: Settings) -> Generator[Engine, None, None]:
 
 
 @pytest.fixture
-def db_session(test_settings: Settings) -> Generator[Session, None, None]:
+def db_session(test_settings: Settings, db_engine: Engine) -> Generator[Session, None, None]:
     session_local = get_sessionmaker(test_settings.database_url)
     with session_local() as session:
         yield session

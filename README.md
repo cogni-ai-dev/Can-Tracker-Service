@@ -32,6 +32,19 @@ uv run uvicorn app.main:app --reload
 
 The API listens on `http://127.0.0.1:8000`.
 
+Create the first local admin after migrations by providing credentials through
+environment variables:
+
+```bash
+export BOOTSTRAP_ADMIN_NAME="$YOUR_ADMIN_NAME"
+export BOOTSTRAP_ADMIN_EMAIL="$YOUR_ADMIN_EMAIL"
+export BOOTSTRAP_ADMIN_PASSWORD="$YOUR_ADMIN_PASSWORD"
+uv run python -m app.cli.bootstrap_admin
+```
+
+The bootstrap command does not define default credentials. If the email already
+exists, it leaves the existing user unchanged.
+
 Useful checks:
 
 ```bash
