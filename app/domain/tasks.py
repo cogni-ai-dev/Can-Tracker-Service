@@ -27,6 +27,92 @@ class ComputedTask:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class TaskRule:
+    status_field: str
+    frontend_field: str
+    status_value: str
+    type: TaskType
+    priority: TaskPriority
+    description: str
+    label: str
+    order: int
+
+
+TASK_RULES: tuple[TaskRule, ...] = (
+    TaskRule(
+        status_field="kyc_status",
+        frontend_field="kyc",
+        status_value=KycStatus.NO_KYC.value,
+        type=TaskType.KYC,
+        priority=TaskPriority.HIGH,
+        description="KYC not done",
+        label="No KYC",
+        order=10,
+    ),
+    TaskRule(
+        status_field="kyc_status",
+        frontend_field="kyc",
+        status_value=KycStatus.REGISTERED.value,
+        type=TaskType.KYC,
+        priority=TaskPriority.MEDIUM,
+        description="Re-KYC pending",
+        label="Re-KYC",
+        order=10,
+    ),
+    TaskRule(
+        status_field="payeezz_status",
+        frontend_field="payeezz",
+        status_value=PayeezzStatus.NOT_AVAILABLE.value,
+        type=TaskType.PAYEEZZ,
+        priority=TaskPriority.HIGH,
+        description="PayEezz mandate not initiated",
+        label="Not Setup",
+        order=20,
+    ),
+    TaskRule(
+        status_field="payeezz_status",
+        frontend_field="payeezz",
+        status_value=PayeezzStatus.SENT_FOR_APPROVAL.value,
+        type=TaskType.PAYEEZZ,
+        priority=TaskPriority.MEDIUM,
+        description="PayEezz sent, awaiting acceptance",
+        label="Pending",
+        order=20,
+    ),
+    TaskRule(
+        status_field="mobile_status",
+        frontend_field="mobile",
+        status_value=VerificationStatus.NOT_VERIFIED.value,
+        type=TaskType.MOBILE,
+        priority=TaskPriority.MEDIUM,
+        description="Mobile number not verified in MFU",
+        label="Unverified",
+        order=30,
+    ),
+    TaskRule(
+        status_field="email_status",
+        frontend_field="email",
+        status_value=VerificationStatus.NOT_VERIFIED.value,
+        type=TaskType.EMAIL,
+        priority=TaskPriority.LOW,
+        description="Email address not verified in MFU",
+        label="Unverified",
+        order=40,
+    ),
+    TaskRule(
+        status_field="nominee_status",
+        frontend_field="nominee",
+        status_value=VerificationStatus.NOT_VERIFIED.value,
+        type=TaskType.NOMINEE,
+        priority=TaskPriority.MEDIUM,
+        description="Nominee details not verified",
+        label="Not Verified",
+        order=50,
+    ),
+)
+
+
 def mask_can_number(can_number: Any) -> str:
     value_text = "" if can_number is None else str(can_number)
     return value_text[-6:]
@@ -91,91 +177,18 @@ def generate_member_tasks(member: Any, family: Any | None = None) -> tuple[Compu
         return ()
 
     tasks: list[ComputedTask] = []
-    kyc_status = value(member, "kyc_status", "kyc", default=None)
-    payeezz_status = value(member, "payeezz_status", "payeezz", default=None)
-    mobile_status = value(member, "mobile_status", "mobile", default=None)
-    email_status = value(member, "email_status", "email", default=None)
-    nominee_status = value(member, "nominee_status", "nominee", default=None)
-
-    if kyc_status == KycStatus.NO_KYC.value:
-        tasks.append(
-            _make_task(
-                TaskType.KYC,
-                TaskPriority.HIGH,
-                member,
-                family,
-                "KYC not done",
-                "No KYC",
+    for rule in TASK_RULES:
+        if value(member, rule.status_field, rule.frontend_field, default=None) == rule.status_value:
+            tasks.append(
+                _make_task(
+                    rule.type,
+                    rule.priority,
+                    member,
+                    family,
+                    rule.description,
+                    rule.label,
+                )
             )
-        )
-    elif kyc_status == KycStatus.REGISTERED.value:
-        tasks.append(
-            _make_task(
-                TaskType.KYC,
-                TaskPriority.MEDIUM,
-                member,
-                family,
-                "Re-KYC pending",
-                "Re-KYC",
-            )
-        )
-
-    if payeezz_status == PayeezzStatus.NOT_AVAILABLE.value:
-        tasks.append(
-            _make_task(
-                TaskType.PAYEEZZ,
-                TaskPriority.HIGH,
-                member,
-                family,
-                "PayEezz mandate not initiated",
-                "Not Setup",
-            )
-        )
-    elif payeezz_status == PayeezzStatus.SENT_FOR_APPROVAL.value:
-        tasks.append(
-            _make_task(
-                TaskType.PAYEEZZ,
-                TaskPriority.MEDIUM,
-                member,
-                family,
-                "PayEezz sent, awaiting acceptance",
-                "Pending",
-            )
-        )
-
-    if mobile_status == VerificationStatus.NOT_VERIFIED.value:
-        tasks.append(
-            _make_task(
-                TaskType.MOBILE,
-                TaskPriority.MEDIUM,
-                member,
-                family,
-                "Mobile number not verified in MFU",
-                "Unverified",
-            )
-        )
-    if email_status == VerificationStatus.NOT_VERIFIED.value:
-        tasks.append(
-            _make_task(
-                TaskType.EMAIL,
-                TaskPriority.LOW,
-                member,
-                family,
-                "Email address not verified in MFU",
-                "Unverified",
-            )
-        )
-    if nominee_status == VerificationStatus.NOT_VERIFIED.value:
-        tasks.append(
-            _make_task(
-                TaskType.NOMINEE,
-                TaskPriority.MEDIUM,
-                member,
-                family,
-                "Nominee details not verified",
-                "Not Verified",
-            )
-        )
 
     return tuple(tasks)
 

@@ -18,6 +18,38 @@ async def test_health_does_not_require_database(tmp_path) -> None:
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+    assert response.headers["x-request-id"]
+
+
+@pytest.mark.asyncio
+async def test_request_id_header_is_preserved(tmp_path) -> None:
+    settings = Settings(
+        app_env="test",
+        database_url=f"sqlite+pysqlite:///{tmp_path / 'request-id.db'}",
+    )
+    transport = httpx.ASGITransport(app=create_app(settings=settings))
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.get("/health", headers={"X-Request-ID": "req-client"})
+
+    assert response.status_code == 200
+    assert response.headers["x-request-id"] == "req-client"
+
+
+@pytest.mark.asyncio
+async def test_unsafe_request_id_header_is_replaced(tmp_path) -> None:
+    settings = Settings(
+        app_env="test",
+        database_url=f"sqlite+pysqlite:///{tmp_path / 'unsafe-request-id.db'}",
+    )
+    transport = httpx.ASGITransport(app=create_app(settings=settings))
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.get("/health", headers={"X-Request-ID": "bad id with spaces"})
+
+    assert response.status_code == 200
+    assert response.headers["x-request-id"] != "bad id with spaces"
+    assert response.headers["x-request-id"]
 
 
 @pytest.mark.asyncio

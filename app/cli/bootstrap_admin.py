@@ -5,10 +5,12 @@ from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.core.database import get_sessionmaker
+from app.core.pii import mask_email
 from app.core.security import hash_password
-from app.domain.enums import UserRole
+from app.domain.enums import AuditEntityType, ChangeSource, UserRole
 from app.models.user import User
 from app.schemas.users import normalize_email
+from app.services.audit import record_create
 
 
 def _required_env(name: str) -> str:
@@ -30,7 +32,7 @@ def main() -> int:
     with session_local() as db:
         existing = db.scalar(select(User).where(User.email == email, User.deleted_at.is_(None)))
         if existing is not None:
-            print(f"Admin bootstrap skipped; user already exists: {email}")
+            print(f"Admin bootstrap skipped; user already exists: {mask_email(email)}")
             return 0
 
         admin = User(
@@ -41,9 +43,17 @@ def main() -> int:
             is_active=True,
         )
         db.add(admin)
+        db.flush()
+        record_create(
+            db,
+            entity_type=AuditEntityType.USER,
+            entity_id=admin.id,
+            actor_user_id=None,
+            source=ChangeSource.MANUAL,
+        )
         db.commit()
 
-    print(f"Admin bootstrap created: {email}")
+    print(f"Admin bootstrap created: {mask_email(email)}")
     return 0
 
 

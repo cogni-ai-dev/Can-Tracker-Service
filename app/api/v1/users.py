@@ -1,20 +1,35 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, require_roles, utc_now
+from app.api.deps import get_db, get_request_id, require_roles, utc_now
 from app.api.errors import raise_api_error
 from app.core.security import hash_password
-from app.domain.enums import UserRole
+from app.domain.enums import AuditEntityType, ChangeSource, UserRole
 from app.models.user import User, UserSession
 from app.schemas.users import UserCreate, UserRead, UserUpdate
+from app.services.audit import record_create, record_delete, record_update
 
 router = APIRouter(tags=["users"])
 
 require_admin = require_roles(UserRole.ADMIN)
 require_rm_listing = require_roles(UserRole.ADMIN, UserRole.OPS, UserRole.MANAGEMENT)
+USER_AUDIT_SENSITIVE_FIELDS = {"email", "password"}
+
+
+def _request_id(request: Request) -> str | None:
+    return get_request_id(request)
+
+
+def _user_audit_values(user: User) -> dict[str, object]:
+    return {
+        "name": user.name,
+        "email": user.email,
+        "role": user.role,
+        "is_active": user.is_active,
+    }
 
 
 def _get_user_or_404(user_id: UUID, db: Session) -> User:
@@ -66,7 +81,8 @@ def list_users(
 @router.post("/users", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 def create_user(
     payload: UserCreate,
-    _admin: User = Depends(require_admin),
+    request: Request,
+    admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> User:
     _ensure_email_available(payload.email, db)
@@ -78,6 +94,15 @@ def create_user(
         is_active=payload.is_active,
     )
     db.add(user)
+    db.flush()
+    record_create(
+        db,
+        entity_type=AuditEntityType.USER,
+        entity_id=user.id,
+        actor_user_id=admin.id,
+        source=ChangeSource.MANUAL,
+        request_id=_request_id(request),
+    )
     db.commit()
     db.refresh(user)
     return user
@@ -96,10 +121,15 @@ def get_user(
 def update_user(
     user_id: UUID,
     payload: UserUpdate,
-    _admin: User = Depends(require_admin),
+    request: Request,
+    admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> User:
     user = _get_user_or_404(user_id, db)
+    old_values = _user_audit_values(user)
+    if payload.password is not None:
+        old_values["password"] = "configured"
+
     if payload.email is not None:
         _ensure_email_available(payload.email, db, existing_user_id=user.id)
         user.email = payload.email
@@ -115,6 +145,20 @@ def update_user(
             _revoke_user_sessions(user.id, db)
         user.is_active = payload.is_active
 
+    new_values = _user_audit_values(user)
+    if payload.password is not None:
+        new_values["password"] = "changed"
+    record_update(
+        db,
+        entity_type=AuditEntityType.USER,
+        entity_id=user.id,
+        old_values=old_values,
+        new_values=new_values,
+        actor_user_id=admin.id,
+        source=ChangeSource.MANUAL,
+        sensitive_fields=USER_AUDIT_SENSITIVE_FIELDS,
+        request_id=_request_id(request),
+    )
     db.commit()
     db.refresh(user)
     return user
@@ -123,13 +167,22 @@ def update_user(
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def deactivate_user(
     user_id: UUID,
-    _admin: User = Depends(require_admin),
+    request: Request,
+    admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> None:
     user = _get_user_or_404(user_id, db)
     if user.is_active:
         _revoke_user_sessions(user.id, db)
     user.is_active = False
+    record_delete(
+        db,
+        entity_type=AuditEntityType.USER,
+        entity_id=user.id,
+        actor_user_id=admin.id,
+        source=ChangeSource.MANUAL,
+        request_id=_request_id(request),
+    )
     db.commit()
 
 

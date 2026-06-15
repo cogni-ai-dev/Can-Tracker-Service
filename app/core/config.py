@@ -1,5 +1,6 @@
 import json
 from functools import lru_cache
+from urllib.parse import urlparse
 
 from pydantic import Field, SecretStr, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -23,6 +24,7 @@ class Settings(BaseSettings):
     session_ttl_seconds: int = Field(default=8 * 60 * 60, alias="SESSION_TTL_SECONDS")
     cors_origins: str = Field(default="", alias="CORS_ORIGINS")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+    backup_retention_days: int = Field(default=14, alias="BACKUP_RETENTION_DAYS")
 
     @field_validator("app_env", "log_level")
     @classmethod
@@ -67,13 +69,63 @@ class Settings(BaseSettings):
             raise ValueError(f"Missing required settings outside test mode: {joined}")
         if self.app_env not in {"local", "dev", "development"} and not self.session_cookie_secure:
             raise ValueError("SESSION_COOKIE_SECURE must be true outside local and test environments.")
+        if self.app_env == "production":
+            self._validate_production_settings()
         return self
+
+    def _validate_production_settings(self) -> None:
+        if self.database_url and (
+            not self.database_url.startswith("postgresql")
+            or any(token in self.database_url.lower() for token in ("<", "placeholder", "replace-with"))
+        ):
+            raise ValueError("DATABASE_URL must use PostgreSQL and must not contain placeholders in production.")
+        cors_origins = self.cors_origin_list
+        if not cors_origins:
+            raise ValueError("CORS_ORIGINS must be configured in production.")
+        for origin in cors_origins:
+            parsed_origin = urlparse(origin)
+            if (
+                origin == "*"
+                or any(token in origin.lower() for token in ("<", "placeholder", "replace-with", "localhost"))
+                or parsed_origin.scheme != "https"
+                or not parsed_origin.netloc
+            ):
+                raise ValueError("CORS_ORIGINS must contain only concrete HTTPS production origins.")
+        if self.backup_retention_days < 14:
+            raise ValueError("BACKUP_RETENTION_DAYS must be at least 14 in production.")
+
+        secret_values: list[str] = []
+        for env_name, value in (
+            ("APP_SECRET_KEY", self.app_secret_key),
+            ("PII_ENCRYPTION_KEY", self.pii_encryption_key),
+            ("PII_SEARCH_HASH_KEY", self.pii_search_hash_key),
+        ):
+            secret_value = value.get_secret_value() if value is not None else ""
+            secret_values.append(secret_value)
+            normalized = secret_value.lower()
+            if (
+                len(secret_value) < 32
+                or "change-me" in normalized
+                or "placeholder" in normalized
+                or "replace-with" in normalized
+                or normalized.startswith("<")
+            ):
+                raise ValueError(f"{env_name} must be a non-placeholder value of at least 32 characters in production.")
+        if len(set(secret_values)) != len(secret_values):
+            raise ValueError("APP_SECRET_KEY, PII_ENCRYPTION_KEY, and PII_SEARCH_HASH_KEY must be independent values.")
 
     @field_validator("session_ttl_seconds")
     @classmethod
     def validate_session_ttl_seconds(cls, value: int) -> int:
         if value <= 0:
             raise ValueError("SESSION_TTL_SECONDS must be greater than zero.")
+        return value
+
+    @field_validator("backup_retention_days")
+    @classmethod
+    def validate_backup_retention_days(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("BACKUP_RETENTION_DAYS must be greater than zero.")
         return value
 
     @property
@@ -91,6 +143,10 @@ class Settings(BaseSettings):
     @property
     def is_test(self) -> bool:
         return self.app_env == "test"
+
+    @property
+    def is_production(self) -> bool:
+        return self.app_env == "production"
 
 
 @lru_cache

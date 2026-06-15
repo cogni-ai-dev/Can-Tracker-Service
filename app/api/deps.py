@@ -19,6 +19,10 @@ def get_app_settings(request: Request) -> Settings:
     return request.app.state.settings
 
 
+def get_request_id(request: Request) -> str | None:
+    return getattr(request.state, "request_id", None) or request.headers.get("x-request-id")
+
+
 def get_db(request: Request) -> Generator[Session, None, None]:
     settings = get_app_settings(request)
     session_local = get_sessionmaker(settings.database_url)

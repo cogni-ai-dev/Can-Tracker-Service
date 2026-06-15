@@ -15,7 +15,11 @@ from app.domain.compliance import (
     percentage,
 )
 from app.domain.enums import (
+    AuditAction,
+    AuditEntityType,
     ChangeSource,
+    ImportBatchStatus,
+    ImportRowStatus,
     KycStatus,
     PayeezzStatus,
     ReportType,
@@ -35,10 +39,14 @@ from app.domain.reports import (
 from app.domain.tasks import ComputedTask, generate_member_tasks, generate_tasks
 
 __all__ = [
+    "AuditAction",
+    "AuditEntityType",
     "ChangeSource",
     "ComputedTask",
     "CountPercentage",
     "FamilyCompletion",
+    "ImportBatchStatus",
+    "ImportRowStatus",
     "KycMetrics",
     "KycStatus",
     "PayeezzMetrics",

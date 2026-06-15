@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 HTML_PATH = Path(__file__).resolve().parents[2] / "remixed-c3e65622.html"
 HTML = HTML_PATH.read_text(encoding="utf-8")
 SCRIPT = HTML.split("<script>", 1)[1].rsplit("</script>", 1)[0]

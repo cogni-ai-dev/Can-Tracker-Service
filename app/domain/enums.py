@@ -54,10 +54,47 @@ class ReportType(CanonicalStrEnum):
     FULL = "full"
 
 
+class ReportExportFormat(CanonicalStrEnum):
+    CSV = "csv"
+    XLSX = "xlsx"
+    PDF = "pdf"
+
+
 class ChangeSource(CanonicalStrEnum):
     MANUAL = "manual"
     IMPORT = "import"
     MFU_API = "mfu_api"
+
+
+class ImportBatchStatus(CanonicalStrEnum):
+    UPLOADED = "uploaded"
+    VALIDATED = "validated"
+    COMMITTED = "committed"
+    FAILED = "failed"
+
+
+class ImportRowStatus(CanonicalStrEnum):
+    VALID = "valid"
+    ERROR = "error"
+    CONFLICT = "conflict"
+    COMMITTED = "committed"
+    SKIPPED = "skipped"
+
+
+class AuditEntityType(CanonicalStrEnum):
+    FAMILY = "family"
+    MEMBER = "member"
+    USER = "user"
+    IMPORT_BATCH = "import_batch"
+
+
+class AuditAction(CanonicalStrEnum):
+    CREATE = "create"
+    UPDATE = "update"
+    DELETE = "delete"
+    RESTORE = "restore"
+    SENSITIVE_READ = "sensitive_read"
+    IMPORT_COMMIT = "import_commit"
 
 
 class UserRole(CanonicalStrEnum):

@@ -157,6 +157,12 @@ ENV/
 env.bak/
 venv.bak/
 
+# Local database backups and restore artifacts
+backups/
+*.dump
+*.dump.sha256
+*.sql
+
 # Spyder project settings
 .spyderproject
 .spyproject

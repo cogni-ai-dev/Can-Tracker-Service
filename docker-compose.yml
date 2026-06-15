@@ -1,40 +1,65 @@
 services:
   api:
-    build: .
+    build:
+      context: .
+    image: ${API_IMAGE:-can-tracker-service:latest}
+    restart: unless-stopped
     command: >
-      sh -c ".venv/bin/alembic upgrade head &&
-             .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000"
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips '${FORWARDED_ALLOW_IPS:-127.0.0.1}'"
     environment:
-      APP_ENV: ${APP_ENV:-local}
-      APP_SECRET_KEY: ${APP_SECRET_KEY:-change-me-local-secret-key}
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-can_tracker}:${POSTGRES_PASSWORD:-can_tracker}@postgres:5432/${POSTGRES_DB:-can_tracker}
-      PII_ENCRYPTION_KEY: ${PII_ENCRYPTION_KEY:-change-me-local-pii-encryption-key}
-      PII_SEARCH_HASH_KEY: ${PII_SEARCH_HASH_KEY:-change-me-local-pii-search-hash-key}
-      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-can_tracker_session}
-      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://127.0.0.1:8000,http://localhost:8000}
+      APP_ENV: ${APP_ENV:?APP_ENV is required}
+      APP_SECRET_KEY: ${APP_SECRET_KEY:?APP_SECRET_KEY is required}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      PII_ENCRYPTION_KEY: ${PII_ENCRYPTION_KEY:?PII_ENCRYPTION_KEY is required}
+      PII_SEARCH_HASH_KEY: ${PII_SEARCH_HASH_KEY:?PII_SEARCH_HASH_KEY is required}
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:?SESSION_COOKIE_NAME is required}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:?SESSION_COOKIE_SECURE is required}
+      SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-28800}
+      CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS is required}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
     depends_on:
       postgres:
         condition: service_healthy
     ports:
-      - "127.0.0.1:8000:8000"
+      - "${API_BIND:-127.0.0.1}:${API_PORT:-8000}:8000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-can_tracker}
-      POSTGRES_USER: ${POSTGRES_USER:-can_tracker}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-can_tracker}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
-    ports:
-      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    expose:
+      - "5432"
 
 volumes:
   postgres-data:
