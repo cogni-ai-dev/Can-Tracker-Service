@@ -66,6 +66,23 @@ def _revoke_user_sessions(user_id: UUID, db: Session) -> None:
         session.revoked_at = now
 
 
+def _ensure_self_update_is_safe(user: User, admin: User, payload: UserUpdate) -> None:
+    if user.id != admin.id:
+        return
+    if payload.is_active is False:
+        raise_api_error(
+            status.HTTP_400_BAD_REQUEST,
+            "self_deactivation_not_allowed",
+            "You cannot deactivate your own account.",
+        )
+    if payload.role is not None and payload.role != UserRole.ADMIN:
+        raise_api_error(
+            status.HTTP_400_BAD_REQUEST,
+            "self_role_change_not_allowed",
+            "You cannot remove your own admin role.",
+        )
+
+
 @router.get("/users", response_model=list[UserRead])
 def list_users(
     include_inactive: bool = True,
@@ -126,6 +143,7 @@ def update_user(
     db: Session = Depends(get_db),
 ) -> User:
     user = _get_user_or_404(user_id, db)
+    _ensure_self_update_is_safe(user, admin, payload)
     old_values = _user_audit_values(user)
     if payload.password is not None:
         old_values["password"] = "configured"
@@ -172,6 +190,12 @@ def deactivate_user(
     db: Session = Depends(get_db),
 ) -> None:
     user = _get_user_or_404(user_id, db)
+    if user.id == admin.id:
+        raise_api_error(
+            status.HTTP_400_BAD_REQUEST,
+            "self_deactivation_not_allowed",
+            "You cannot deactivate your own account.",
+        )
     if user.is_active:
         _revoke_user_sessions(user.id, db)
     user.is_active = False

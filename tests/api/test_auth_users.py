@@ -151,6 +151,72 @@ async def test_password_change_revokes_existing_user_sessions(
 
 
 @pytest.mark.asyncio
+async def test_user_can_change_own_password_and_keep_current_session(
+    test_settings: Settings,
+    db_engine,
+    db_session: Session,
+) -> None:
+    user = create_test_user(db_session, email="admin@example.test", role=UserRole.ADMIN)
+
+    async with client_for(test_settings) as current_client, client_for(test_settings) as other_client:
+        assert (await login(current_client, user.email)).status_code == 200
+        assert (await login(other_client, user.email)).status_code == 200
+
+        change_response = await current_client.post(
+            "/api/v1/auth/change-password",
+            json={"current_password": PASSWORD, "new_password": "new-password123"},
+        )
+        current_session_response = await current_client.get("/api/v1/auth/me")
+        other_session_response = await other_client.get("/api/v1/auth/me")
+        old_password_response = await other_client.post(
+            "/api/v1/auth/login",
+            json={"email": user.email, "password": PASSWORD},
+        )
+        new_password_response = await other_client.post(
+            "/api/v1/auth/login",
+            json={"email": user.email, "password": "new-password123"},
+        )
+
+    assert change_response.status_code == 204
+    assert current_session_response.status_code == 200
+    assert other_session_response.status_code == 401
+    assert old_password_response.status_code == 401
+    assert new_password_response.status_code == 200
+    assert db_session.scalar(
+        select(UserSession).where(
+            UserSession.user_id == user.id,
+            UserSession.revoked_at.is_not(None),
+        )
+    ) is not None
+
+
+@pytest.mark.asyncio
+async def test_change_password_rejects_wrong_current_password(
+    test_settings: Settings,
+    db_engine,
+    db_session: Session,
+) -> None:
+    user = create_test_user(db_session, email="admin@example.test", role=UserRole.ADMIN)
+
+    async with client_for(test_settings) as client:
+        assert (await login(client, user.email)).status_code == 200
+        response = await client.post(
+            "/api/v1/auth/change-password",
+            json={"current_password": "wrong-password", "new_password": "new-password123"},
+        )
+        current_session_response = await client.get("/api/v1/auth/me")
+        old_password_response = await client.post(
+            "/api/v1/auth/login",
+            json={"email": user.email, "password": PASSWORD},
+        )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_current_password"
+    assert current_session_response.status_code == 200
+    assert old_password_response.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_deactivation_revokes_existing_sessions_even_if_user_is_reactivated(
     test_settings: Settings,
     db_engine,
@@ -237,6 +303,93 @@ async def test_admin_can_create_update_list_and_deactivate_users(
     assert delete_response.status_code == 204
     assert get_response.status_code == 200
     assert get_response.json()["is_active"] is False
+
+
+@pytest.mark.asyncio
+async def test_admin_can_create_rm_and_management_users(
+    test_settings: Settings,
+    db_engine,
+    db_session: Session,
+) -> None:
+    create_test_user(db_session, email="admin@example.test", role=UserRole.ADMIN)
+
+    async with client_for(test_settings) as client:
+        assert (await login(client, "admin@example.test")).status_code == 200
+
+        rm_response = await client.post(
+            "/api/v1/users",
+            json={
+                "name": "Relationship Manager",
+                "email": "rm@example.test",
+                "password": PASSWORD,
+                "role": "rm",
+            },
+        )
+        management_response = await client.post(
+            "/api/v1/users",
+            json={
+                "name": "Management User",
+                "email": "management@example.test",
+                "password": PASSWORD,
+                "role": "management",
+            },
+        )
+
+    assert rm_response.status_code == 201
+    assert rm_response.json()["role"] == "rm"
+    assert management_response.status_code == 201
+    assert management_response.json()["role"] == "management"
+
+
+@pytest.mark.asyncio
+async def test_admin_cannot_deactivate_self(
+    test_settings: Settings,
+    db_engine,
+    db_session: Session,
+) -> None:
+    admin = create_test_user(db_session, email="admin@example.test", role=UserRole.ADMIN)
+
+    async with client_for(test_settings) as client:
+        assert (await login(client, "admin@example.test")).status_code == 200
+        response = await client.delete(f"/api/v1/users/{admin.id}")
+        me_response = await client.get("/api/v1/auth/me")
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "self_deactivation_not_allowed"
+    assert me_response.status_code == 200
+    db_session.expire_all()
+    assert db_session.get(User, admin.id).is_active is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("payload", "error_code"),
+    [
+        ({"role": "ops"}, "self_role_change_not_allowed"),
+        ({"is_active": False}, "self_deactivation_not_allowed"),
+    ],
+)
+async def test_admin_cannot_demote_or_inactivate_self_via_patch(
+    payload: dict[str, object],
+    error_code: str,
+    test_settings: Settings,
+    db_engine,
+    db_session: Session,
+) -> None:
+    admin = create_test_user(db_session, email="admin@example.test", role=UserRole.ADMIN)
+
+    async with client_for(test_settings) as client:
+        assert (await login(client, "admin@example.test")).status_code == 200
+        response = await client.patch(f"/api/v1/users/{admin.id}", json=payload)
+        me_response = await client.get("/api/v1/auth/me")
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == error_code
+    assert me_response.status_code == 200
+    db_session.expire_all()
+    refreshed_admin = db_session.get(User, admin.id)
+    assert refreshed_admin.role == UserRole.ADMIN
+    assert refreshed_admin.is_active is True
 
 
 @pytest.mark.asyncio
@@ -340,6 +493,11 @@ async def test_rm_cannot_access_rm_listing(
     ("method", "path", "json_body"),
     [
         ("GET", "/api/v1/auth/me", None),
+        (
+            "POST",
+            "/api/v1/auth/change-password",
+            {"current_password": PASSWORD, "new_password": "new-password123"},
+        ),
         ("GET", "/api/v1/users", None),
         ("POST", "/api/v1/users", {"name": "Anon", "email": "anon@example.test", "password": PASSWORD, "role": "ops"}),
         ("GET", f"/api/v1/users/{uuid4()}", None),

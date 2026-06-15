@@ -13,6 +13,29 @@ def test_frontend_bootstraps_through_authenticated_api_session() -> None:
     assert "seedData" not in SCRIPT
 
 
+def test_frontend_exposes_logout_action() -> None:
+    assert 'id="logout-button"' in HTML
+    assert "onclick=\"logout()\"" in HTML
+    assert "api.request('POST', '/auth/logout')" in SCRIPT
+    assert "resetSessionState()" in SCRIPT
+    assert "showLogin()" in SCRIPT
+
+
+def test_frontend_exposes_change_password_action() -> None:
+    required_markup = [
+        'id="change-password-button"',
+        'onclick="openChangePassword()"',
+        'id="password-modal"',
+        'id="cp-current"',
+        'id="cp-new"',
+        'id="cp-confirm"',
+    ]
+    for snippet in required_markup:
+        assert snippet in HTML
+    assert "api.post('/auth/change-password'" in SCRIPT
+    assert "New password and confirmation do not match." in SCRIPT
+
+
 def test_major_read_screens_are_wired_to_backend_endpoints() -> None:
     required_snippets = [
         "api.get('/dashboard/summary'",
@@ -61,3 +84,45 @@ def test_status_and_task_tabs_use_backend_filters_not_local_calculations() -> No
     for snippet in required_filters:
         assert snippet in SCRIPT
     assert "function getTaskList" not in SCRIPT
+
+
+def test_admin_user_management_page_uses_users_api() -> None:
+    assert 'id="page-admin-users"' in HTML
+    assert "Admin Portal" in HTML
+    assert "navigate('admin-users')" in HTML
+    required_snippets = [
+        "api.get('/users'",
+        "api.post('/users'",
+        "api.patch(`/users/${db.editUserId}`",
+        "api.delete(`/users/${userId}`",
+        "api.patch(`/users/${userId}`, { is_active: true })",
+        "await loadRMs()",
+    ]
+    for snippet in required_snippets:
+        assert snippet in SCRIPT
+
+
+def test_admin_user_modal_handles_create_edit_password_rules() -> None:
+    required_markup = [
+        'id="user-modal"',
+        'id="u-name"',
+        'id="u-email"',
+        'id="u-role"',
+        'id="u-active"',
+        'id="u-password"',
+        'id="u-password-help"',
+    ]
+    for snippet in required_markup:
+        assert snippet in HTML
+    assert "Edit / Reset Password" in SCRIPT
+    assert "Leave blank to keep the current password." in SCRIPT
+    assert "Password is required for new users." in SCRIPT
+    assert "if (!isEdit || password) payload.password = password;" in SCRIPT
+
+
+def test_admin_portal_navigation_is_admin_only() -> None:
+    assert "function canManageUsers()" in SCRIPT
+    assert "db.currentUser?.role === 'admin'" in SCRIPT
+    assert "document.querySelectorAll('[data-admin-only]')" in SCRIPT
+    assert "Your role is not allowed to manage users." in SCRIPT
+    assert HTML.count("data-admin-only") >= 3

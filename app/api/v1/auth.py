@@ -4,12 +4,12 @@ from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import clear_session_cookie, get_app_settings, get_db, require_active_user, utc_now
+from app.api.deps import clear_session_cookie, get_app_settings, get_current_session, get_db, require_active_user, utc_now
 from app.api.errors import raise_api_error
 from app.core.config import Settings
-from app.core.security import hash_session_token, new_session_token, verify_password
+from app.core.security import hash_password, hash_session_token, new_session_token, verify_password
 from app.models.user import User, UserSession
-from app.schemas.users import LoginRequest, LoginResponse, UserRead
+from app.schemas.users import ChangePasswordRequest, LoginRequest, LoginResponse, UserRead
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -81,6 +81,41 @@ def logout(
             db.commit()
 
     clear_session_cookie(response, settings)
+
+
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+def change_password(
+    payload: ChangePasswordRequest,
+    current_session: UserSession = Depends(get_current_session),
+    db: Session = Depends(get_db),
+) -> None:
+    user = current_session.user
+    if not user.is_active:
+        raise_api_error(
+            status.HTTP_403_FORBIDDEN,
+            "inactive_user",
+            "User account is inactive.",
+        )
+    if not verify_password(payload.current_password, user.password_hash):
+        raise_api_error(
+            status.HTTP_400_BAD_REQUEST,
+            "invalid_current_password",
+            "Current password is incorrect.",
+        )
+
+    user.password_hash = hash_password(payload.new_password)
+    now = utc_now()
+    sessions = db.scalars(
+        select(UserSession).where(
+            UserSession.user_id == user.id,
+            UserSession.id != current_session.id,
+            UserSession.revoked_at.is_(None),
+            UserSession.deleted_at.is_(None),
+        )
+    )
+    for session in sessions:
+        session.revoked_at = now
+    db.commit()
 
 
 @router.get("/me", response_model=UserRead)

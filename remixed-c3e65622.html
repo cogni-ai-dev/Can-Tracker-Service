@@ -56,6 +56,9 @@
   .sb-avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--accent); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 11px; flex-shrink: 0; }
   .sb-user-info { color: #94a3b8; font-size: 11px; }
   .sb-user-name { color: #e2e8f0; font-weight: 600; font-size: 12px; }
+  .sb-password, .sb-logout { width: 100%; margin-top: 10px; justify-content: center; background: rgba(255,255,255,0.06); color: #cbd5e1; border: 1px solid var(--navy-light); }
+  .sb-password:hover, .sb-logout:hover { background: rgba(255,255,255,0.1); color: #fff; }
+  .sb-password svg, .sb-logout svg { width: 14px; height: 14px; }
 
   /* TOPBAR */
   .tb-title { font-size: 15px; font-weight: 700; color: var(--navy); }
@@ -174,6 +177,7 @@
   input:focus, select:focus, textarea:focus { border-color: var(--accent); background: var(--white); }
   select { cursor: pointer; }
   textarea { resize: vertical; min-height: 60px; }
+  .form-help { color: var(--text-muted); font-size: 10.5px; line-height: 1.4; }
   .form-section { font-size: 11px; font-weight: 700; color: var(--navy); text-transform: uppercase; letter-spacing: 1px; padding: 4px 0 8px; border-bottom: 2px solid var(--navy); margin: 14px 0 12px; grid-column: 1/-1; }
 
   /* PENDING TASKS */
@@ -228,6 +232,9 @@
   .report-desc { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
   .report-actions { display: flex; gap: 6px; }
   .reports-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+  .admin-toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+  .admin-toolbar input { min-width:220px; }
+  .admin-current { font-size:10.5px; color:var(--text-muted); font-weight:600; }
 
   /* TOOLTIP */
   [title] { cursor: help; }
@@ -239,6 +246,8 @@
     .sb-item { justify-content: center; padding: 10px; }
     .sb-footer { padding: 8px; }
     .sb-avatar { margin: 0 auto; }
+    .sb-password, .sb-logout { padding: 7px; }
+    .sb-password span, .sb-logout span { display: none; }
     .form-grid, .form-grid-3 { grid-template-columns: 1fr; }
   }
 </style>
@@ -296,6 +305,14 @@
     </div>
   </div>
 
+  <div class="sb-section" data-admin-only>
+    <div class="sb-section-label">Admin Portal</div>
+    <div class="sb-item" onclick="navigate('admin-users')">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.607 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+      <span>Users</span>
+    </div>
+  </div>
+
   <div class="sb-footer">
     <div class="sb-user">
       <div class="sb-avatar" id="sb-avatar-text">RM</div>
@@ -304,6 +321,14 @@
         <div>Operations</div>
       </div>
     </div>
+    <button class="btn sb-password" id="change-password-button" onclick="openChangePassword()" title="Change password">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+      <span>Change Password</span>
+    </button>
+    <button class="btn sb-logout" id="logout-button" onclick="logout()" title="Sign out">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H9m4 8H5a2 2 0 01-2-2V6a2 2 0 012-2h8"/></svg>
+      <span>Logout</span>
+    </button>
   </div>
 </nav>
 
@@ -592,6 +617,40 @@
       </div>
     </div>
 
+    <!-- ADMIN USERS PAGE -->
+    <div id="page-admin-users" class="page">
+      <div class="page-header">
+        <div class="page-icon"><svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a4 4 0 00-4-4h-1M9 20H4v-2a4 4 0 014-4h1m8-4a4 4 0 10-8 0 4 4 0 008 0zm-4 4a4 4 0 100-8 4 4 0 000 8z"/></svg></div>
+        <div><div class="page-title">User Management</div><div class="page-sub">Admin-only access for RM, operations, and management accounts</div></div>
+        <div style="margin-left:auto;" data-admin-only><button class="btn btn-primary" onclick="openAddUser()">+ Add User</button></div>
+      </div>
+      <div class="admin-toolbar" data-admin-only>
+        <span style="font-size:11px; font-weight:600; color:var(--text-secondary);">Filter:</span>
+        <select id="admin-user-role-filter" onchange="renderAdminUsers()" style="width:150px;">
+          <option value="">All roles</option>
+          <option value="admin">Admin</option>
+          <option value="ops">Ops</option>
+          <option value="rm">RM</option>
+          <option value="management">Management</option>
+        </select>
+        <select id="admin-user-status-filter" onchange="renderAdminUsers()" style="width:150px;">
+          <option value="">All statuses</option>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+        </select>
+        <input type="text" id="admin-user-search" placeholder="Search users..." oninput="renderAdminUsers()">
+      </div>
+      <div class="section">
+        <div class="section-header"><div class="section-title" id="admin-users-title">Users</div></div>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Last Login</th><th>Updated</th><th>Actions</th></tr></thead>
+            <tbody id="admin-users-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
   </div><!-- /content -->
 </div><!-- /main -->
 </div><!-- /app -->
@@ -692,6 +751,71 @@
   </div>
 </div>
 
+<!-- ADD/EDIT USER MODAL -->
+<div class="modal-overlay" id="user-modal">
+  <div class="modal" style="max-width:720px;">
+    <div class="modal-header">
+      <div class="modal-title" id="user-modal-title">Add User</div>
+      <div class="modal-close" onclick="closeModal('user-modal')">
+        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </div>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group"><label>Name *</label><input type="text" id="u-name" placeholder="e.g. Priya Sharma"></div>
+        <div class="form-group"><label>Email *</label><input type="email" id="u-email" placeholder="user@example.com"></div>
+        <div class="form-group"><label>Role *</label>
+          <select id="u-role">
+            <option value="admin">Admin</option>
+            <option value="ops">Ops</option>
+            <option value="rm">RM</option>
+            <option value="management">Management</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Status</label>
+          <select id="u-active">
+            <option value="true">Active</option>
+            <option value="false">Inactive</option>
+          </select>
+        </div>
+        <div class="form-group full">
+          <label id="u-password-label">Password *</label>
+          <input type="password" id="u-password" placeholder="At least 8 characters">
+          <div class="form-help" id="u-password-help">Set the initial password for this user.</div>
+        </div>
+        <div class="form-group full"><div class="admin-current" id="u-self-note"></div></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('user-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveUser()">Save User</button>
+    </div>
+  </div>
+</div>
+
+<!-- CHANGE PASSWORD MODAL -->
+<div class="modal-overlay" id="password-modal">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header">
+      <div class="modal-title">Change Password</div>
+      <div class="modal-close" onclick="closeModal('password-modal')">
+        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </div>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group full"><label>Current Password *</label><input type="password" id="cp-current" autocomplete="current-password"></div>
+        <div class="form-group full"><label>New Password *</label><input type="password" id="cp-new" autocomplete="new-password" placeholder="At least 8 characters"></div>
+        <div class="form-group full"><label>Confirm New Password *</label><input type="password" id="cp-confirm" autocomplete="new-password"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('password-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="savePassword()">Change Password</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // =====================================================================
 // API + STATE
@@ -704,12 +828,14 @@ let db = {
   currentFamilyId: null,
   editFamilyId: null,
   editMemberId: null,
+  editUserId: null,
   familyFilter: 'all',
   kycTab: 'all',
   payTab: 'all',
   contactTab: 'all',
   taskTab: 'all',
   rms: [],
+  users: [],
   rmById: new Map(),
   rmByName: new Map(),
   familyById: new Map(),
@@ -939,6 +1065,73 @@ function showApp() {
   app.style.display = '';
 }
 
+function resetSessionState() {
+  db.currentUser = null;
+  db.currentFamilyId = null;
+  db.editFamilyId = null;
+  db.editMemberId = null;
+  db.editUserId = null;
+  db.rms = [];
+  db.users = [];
+  db.rmById = new Map();
+  db.rmByName = new Map();
+  db.currentFamily = null;
+  db.bootstrapped = false;
+}
+
+async function logout() {
+  try {
+    await api.request('POST', '/auth/logout');
+  } catch (error) {
+    if (error.status && error.status !== 401) showToast(friendlyError(error));
+  } finally {
+    resetSessionState();
+    const form = document.getElementById('login-form');
+    if (form) form.reset();
+    const errorEl = document.getElementById('login-error');
+    if (errorEl) errorEl.style.display = 'none';
+    showLogin();
+  }
+}
+
+function openChangePassword() {
+  if (!db.currentUser) return;
+  ['cp-current', 'cp-new', 'cp-confirm'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  openModal('password-modal');
+  setTimeout(() => document.getElementById('cp-current')?.focus(), 50);
+}
+
+async function savePassword() {
+  const currentPassword = document.getElementById('cp-current').value;
+  const newPassword = document.getElementById('cp-new').value;
+  const confirmPassword = document.getElementById('cp-confirm').value;
+  if (!currentPassword || !newPassword || !confirmPassword) {
+    alert('Please fill in all password fields.');
+    return;
+  }
+  if (newPassword.length < 8) {
+    alert('New password must be at least 8 characters.');
+    return;
+  }
+  if (newPassword !== confirmPassword) {
+    alert('New password and confirmation do not match.');
+    return;
+  }
+  try {
+    await api.post('/auth/change-password', {
+      current_password: currentPassword,
+      new_password: newPassword,
+    });
+    closeModal('password-modal');
+    showToast('Password changed.');
+  } catch (error) {
+    showToast(friendlyError(error));
+  }
+}
+
 async function ensureAuthenticated() {
   try {
     db.currentUser = await api.get('/auth/me');
@@ -993,6 +1186,10 @@ function canDeleteMember() {
   return isAdminOps();
 }
 
+function canManageUsers() {
+  return db.currentUser?.role === 'admin';
+}
+
 function refreshRoleControls() {
   const allowed = {
     'family-create': canCreateFamily(),
@@ -1001,6 +1198,9 @@ function refreshRoleControls() {
   };
   document.querySelectorAll('[data-role-action]').forEach(el => {
     el.style.display = allowed[el.dataset.roleAction] ? '' : 'none';
+  });
+  document.querySelectorAll('[data-admin-only]').forEach(el => {
+    el.style.display = canManageUsers() ? '' : 'none';
   });
 }
 
@@ -1045,13 +1245,13 @@ function navigate(page) {
   const pageEl = document.getElementById('page-' + page);
   if (pageEl) pageEl.classList.add('active');
 
-  const navMap = { dashboard:'dashboard', families:'families', 'family-detail':'families', kyc:'kyc', payeezz:'payeezz', contact:'contact', tasks:'tasks', reports:'reports' };
+  const navMap = { dashboard:'dashboard', families:'families', 'family-detail':'families', kyc:'kyc', payeezz:'payeezz', contact:'contact', tasks:'tasks', reports:'reports', 'admin-users':'admin-users' };
   document.querySelectorAll('.sb-item').forEach(i => {
     if (i.getAttribute('onclick') && i.getAttribute('onclick').includes("'"+page+"'")) i.classList.add('active');
     if (navMap[page] && i.getAttribute('onclick') && i.getAttribute('onclick').includes("'"+navMap[page]+"'")) i.classList.add('active');
   });
 
-  const titles = { dashboard:'Dashboard', families:'Client Families', 'family-detail':'Family Detail', kyc:'KYC Status', payeezz:'PayEezz Status', contact:'Contact Verification', tasks:'Pending Tasks', reports:'Reports' };
+  const titles = { dashboard:'Dashboard', families:'Client Families', 'family-detail':'Family Detail', kyc:'KYC Status', payeezz:'PayEezz Status', contact:'Contact Verification', tasks:'Pending Tasks', reports:'Reports', 'admin-users':'User Management' };
   document.getElementById('tb-title').textContent = titles[page] || page;
 
   // Render page
@@ -1061,6 +1261,7 @@ function navigate(page) {
   else if (page === 'payeezz') void renderPayPage();
   else if (page === 'contact') void renderContactPage();
   else if (page === 'tasks') void renderTasksPage();
+  else if (page === 'admin-users') void renderAdminUsers();
 }
 
 // =====================================================================
@@ -1655,6 +1856,205 @@ async function renderTaskList(tab) {
     container.innerHTML = response.items.length ? response.items.map(t => taskItemHTML(t)).join('') : '<div class="empty"><div class="empty-title">No pending tasks in this category.</div></div>';
   } catch (error) {
     container.innerHTML = errorHTML(error);
+    showToast(friendlyError(error));
+  }
+}
+
+// =====================================================================
+// ADMIN USER MANAGEMENT
+// =====================================================================
+const USER_ROLE_LABELS = {
+  admin: 'Admin',
+  ops: 'Ops',
+  rm: 'RM',
+  management: 'Management',
+};
+
+function userRoleBadge(role) {
+  const badgeClass = role === 'admin' ? 'badge-red' : role === 'ops' ? 'badge-blue' : role === 'rm' ? 'badge-green' : 'badge-yellow';
+  return `<span class="badge ${badgeClass}">${safeText(USER_ROLE_LABELS[role] || role)}</span>`;
+}
+
+function userStatusBadge(isActive) {
+  return isActive ? '<span class="badge badge-green">Active</span>' : '<span class="badge badge-red">Inactive</span>';
+}
+
+function filteredAdminUsers() {
+  const role = document.getElementById('admin-user-role-filter')?.value || '';
+  const status = document.getElementById('admin-user-status-filter')?.value || '';
+  const query = (document.getElementById('admin-user-search')?.value || '').trim().toLowerCase();
+  return db.users.filter(user => {
+    if (role && user.role !== role) return false;
+    if (status === 'active' && !user.is_active) return false;
+    if (status === 'inactive' && user.is_active) return false;
+    if (!query) return true;
+    return [user.name, user.email, user.role].join(' ').toLowerCase().includes(query);
+  });
+}
+
+function adminUserActionsHTML(user) {
+  const safeId = escapeHTML(user.id);
+  const edit = `<button class="btn btn-secondary btn-sm" onclick="openEditUser('${safeId}')">Edit / Reset Password</button>`;
+  if (user.id === db.currentUser?.id) {
+    return `${edit}<span class="admin-current" style="margin-left:8px;">Current user</span>`;
+  }
+  if (user.is_active) {
+    return `${edit}<button class="btn btn-danger btn-sm" style="margin-left:4px;" onclick="deactivateUser('${safeId}')">Deactivate</button>`;
+  }
+  return `${edit}<button class="btn btn-primary btn-sm" style="margin-left:4px;" onclick="reactivateUser('${safeId}')">Reactivate</button>`;
+}
+
+function renderAdminUserRows() {
+  const users = filteredAdminUsers();
+  const title = document.getElementById('admin-users-title');
+  if (title) title.textContent = `Users (${users.length} of ${db.users.length})`;
+  const body = document.getElementById('admin-users-table-body');
+  if (!body) return;
+  body.innerHTML = users.map(user => `
+    <tr>
+      <td><strong>${safeText(user.name)}</strong></td>
+      <td>${safeText(user.email)}</td>
+      <td>${userRoleBadge(user.role)}</td>
+      <td>${userStatusBadge(user.is_active)}</td>
+      <td>${formatDate(user.last_login_at)}</td>
+      <td>${formatDate(user.updated_at)}</td>
+      <td>${adminUserActionsHTML(user)}</td>
+    </tr>`).join('') || emptyRow(7, 'No users match the current filters.');
+}
+
+async function renderAdminUsers() {
+  const body = document.getElementById('admin-users-table-body');
+  if (!body) return;
+  if (!canManageUsers()) {
+    db.users = [];
+    document.getElementById('admin-users-title').textContent = 'Admin access required';
+    body.innerHTML = emptyRow(7, 'Your role is not allowed to manage users.');
+    return;
+  }
+  body.innerHTML = tableLoading(7, 'Loading users...');
+  try {
+    db.users = await api.get('/users', { include_inactive: true });
+    renderAdminUserRows();
+  } catch (error) {
+    body.innerHTML = emptyRow(7, friendlyError(error));
+    showToast(friendlyError(error));
+  }
+}
+
+function selectedAdminUser() {
+  return db.users.find(user => user.id === db.editUserId);
+}
+
+function openAddUser() {
+  if (!canManageUsers()) { showToast('Your role is not allowed to manage users.'); return; }
+  db.editUserId = null;
+  document.getElementById('user-modal-title').textContent = 'Add User';
+  document.getElementById('u-name').value = '';
+  document.getElementById('u-email').value = '';
+  document.getElementById('u-role').value = 'rm';
+  document.getElementById('u-role').disabled = false;
+  document.getElementById('u-active').value = 'true';
+  document.getElementById('u-active').disabled = false;
+  document.getElementById('u-password').value = '';
+  document.getElementById('u-password-label').textContent = 'Password *';
+  document.getElementById('u-password-help').textContent = 'Set the initial password for this user.';
+  document.getElementById('u-self-note').textContent = '';
+  openModal('user-modal');
+}
+
+function openEditUser(userId) {
+  if (!canManageUsers()) { showToast('Your role is not allowed to manage users.'); return; }
+  const user = db.users.find(candidate => candidate.id === userId);
+  if (!user) { showToast('User record was not found.'); return; }
+  const isSelf = user.id === db.currentUser?.id;
+  db.editUserId = user.id;
+  document.getElementById('user-modal-title').textContent = 'Edit User';
+  document.getElementById('u-name').value = user.name || '';
+  document.getElementById('u-email').value = user.email || '';
+  document.getElementById('u-role').value = user.role || 'rm';
+  document.getElementById('u-role').disabled = isSelf;
+  document.getElementById('u-active').value = user.is_active ? 'true' : 'false';
+  document.getElementById('u-active').disabled = isSelf;
+  document.getElementById('u-password').value = '';
+  document.getElementById('u-password-label').textContent = 'Reset password';
+  document.getElementById('u-password-help').textContent = 'Leave blank to keep the current password.';
+  document.getElementById('u-self-note').textContent = isSelf ? 'You cannot remove your own admin role or deactivate your own account.' : '';
+  openModal('user-modal');
+}
+
+function buildUserPayload(isEdit) {
+  const name = document.getElementById('u-name').value.trim();
+  const email = document.getElementById('u-email').value.trim();
+  const role = document.getElementById('u-role').value;
+  const isActive = document.getElementById('u-active').value === 'true';
+  const password = document.getElementById('u-password').value;
+  if (!name || !email || !role) {
+    alert('Please fill in all required fields.');
+    return null;
+  }
+  if (!isEdit && !password.trim()) {
+    alert('Password is required for new users.');
+    return null;
+  }
+  if (password && password.length < 8) {
+    alert('Password must be at least 8 characters.');
+    return null;
+  }
+  const payload = { name, email, role, is_active: isActive };
+  if (!isEdit || password) payload.password = password;
+  return payload;
+}
+
+async function refreshAfterUserChange() {
+  await renderAdminUsers();
+  await loadRMs();
+  if (document.getElementById('page-dashboard')?.classList.contains('active')) {
+    await renderDashboard();
+  } else {
+    populateRMFilter();
+  }
+}
+
+async function saveUser() {
+  if (!canManageUsers()) { showToast('Your role is not allowed to manage users.'); return; }
+  const isEdit = Boolean(db.editUserId);
+  const payload = buildUserPayload(isEdit);
+  if (!payload) return;
+  try {
+    if (isEdit) {
+      await api.patch(`/users/${db.editUserId}`, payload);
+    } else {
+      await api.post('/users', payload);
+    }
+    closeModal('user-modal');
+    await refreshAfterUserChange();
+    showToast(isEdit ? 'User updated.' : 'User created.');
+  } catch (error) {
+    showToast(friendlyError(error));
+  }
+}
+
+async function deactivateUser(userId) {
+  if (!canManageUsers()) { showToast('Your role is not allowed to manage users.'); return; }
+  if (userId === db.currentUser?.id) { showToast('You cannot deactivate your own account.'); return; }
+  const user = db.users.find(candidate => candidate.id === userId);
+  if (!confirm(`Deactivate ${userLabel(user)}?`)) return;
+  try {
+    await api.delete(`/users/${userId}`);
+    await refreshAfterUserChange();
+    showToast('User deactivated.');
+  } catch (error) {
+    showToast(friendlyError(error));
+  }
+}
+
+async function reactivateUser(userId) {
+  if (!canManageUsers()) { showToast('Your role is not allowed to manage users.'); return; }
+  try {
+    await api.patch(`/users/${userId}`, { is_active: true });
+    await refreshAfterUserChange();
+    showToast('User reactivated.');
+  } catch (error) {
     showToast(friendlyError(error));
   }
 }

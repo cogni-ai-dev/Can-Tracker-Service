@@ -102,3 +102,18 @@ class LoginRequest(BaseModel):
 
 class LoginResponse(BaseModel):
     user: UserRead
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=8, max_length=256)
+
+    @field_validator("current_password")
+    @classmethod
+    def validate_current_password(cls, value: str) -> str:
+        return _non_blank(value, "Current password")
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, value: str) -> str:
+        return _non_blank(value, "New password")
