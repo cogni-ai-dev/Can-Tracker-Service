@@ -1,9 +1,13 @@
 import json
+import os
+import re
 from functools import lru_cache
 from urllib.parse import urlparse
 
 from pydantic import Field, SecretStr, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+DATABASE_SCHEMA_PATTERN = re.compile(r"^[a-z_][a-z0-9_]*$")
 
 
 class Settings(BaseSettings):
@@ -17,6 +21,7 @@ class Settings(BaseSettings):
     app_env: str = Field(default="test", alias="APP_ENV")
     app_secret_key: SecretStr | None = Field(default=None, alias="APP_SECRET_KEY")
     database_url: str | None = Field(default=None, alias="DATABASE_URL")
+    database_schema: str | None = Field(default=None, alias="DATABASE_SCHEMA")
     pii_encryption_key: SecretStr | None = Field(default=None, alias="PII_ENCRYPTION_KEY")
     pii_search_hash_key: SecretStr | None = Field(default=None, alias="PII_SEARCH_HASH_KEY")
     session_cookie_name: str = Field(default="can_tracker_session", alias="SESSION_COOKIE_NAME")
@@ -25,6 +30,19 @@ class Settings(BaseSettings):
     cors_origins: str = Field(default="", alias="CORS_ORIGINS")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     backup_retention_days: int = Field(default=14, alias="BACKUP_RETENTION_DAYS")
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls,
+        init_settings,
+        env_settings,
+        dotenv_settings,
+        file_secret_settings,
+    ):
+        if os.environ.get("APP_ENV", "").strip().lower() == "test":
+            return init_settings, env_settings, file_secret_settings
+        return init_settings, env_settings, dotenv_settings, file_secret_settings
 
     @field_validator("app_env", "log_level")
     @classmethod
@@ -41,6 +59,18 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return value.strip()
         raise TypeError(f"{info.field_name} must be a comma-separated string or list of origins.")
+
+    @field_validator("database_schema", mode="before")
+    @classmethod
+    def normalize_database_schema(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        schema = str(value).strip()
+        if not schema:
+            return None
+        if not DATABASE_SCHEMA_PATTERN.fullmatch(schema):
+            raise ValueError("DATABASE_SCHEMA must be a lowercase SQL identifier.")
+        return schema
 
     @model_validator(mode="after")
     def apply_test_defaults_and_validate_required_settings(self) -> "Settings":

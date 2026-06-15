@@ -6,53 +6,70 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
 
-_engines: dict[str, Engine] = {}
-_sessionmakers: dict[str, sessionmaker[Session]] = {}
+DatabaseCacheKey = tuple[str, str | None]
+
+_engines: dict[DatabaseCacheKey, Engine] = {}
+_sessionmakers: dict[DatabaseCacheKey, sessionmaker[Session]] = {}
 
 
-def _connect_args(database_url: str) -> dict[str, object]:
+def _connect_args(database_url: str, database_schema: str | None = None) -> dict[str, object]:
     if database_url.startswith("sqlite"):
         return {"check_same_thread": False}
+    if database_url.startswith("postgresql") and database_schema:
+        return {"options": f"-csearch_path={database_schema},public"}
     return {}
 
 
-def get_engine(database_url: str | None = None) -> Engine:
-    url = database_url or get_settings().database_url
+def _database_config(
+    database_url: str | None = None,
+    database_schema: str | None = None,
+) -> tuple[str, str | None]:
+    settings = get_settings()
+    url = database_url or settings.database_url
     if not url:
         raise RuntimeError("DATABASE_URL is required.")
-    if url not in _engines:
-        _engines[url] = create_engine(
+    schema = database_schema if database_schema is not None else settings.database_schema
+    return url, schema
+
+
+def get_engine(database_url: str | None = None, database_schema: str | None = None) -> Engine:
+    url, schema = _database_config(database_url, database_schema)
+    key = (url, schema)
+    if key not in _engines:
+        _engines[key] = create_engine(
             url,
-            connect_args=_connect_args(url),
+            connect_args=_connect_args(url, schema),
             future=True,
             pool_pre_ping=True,
         )
-    return _engines[url]
+    return _engines[key]
 
 
-def get_sessionmaker(database_url: str | None = None) -> sessionmaker[Session]:
-    url = database_url or get_settings().database_url
-    if not url:
-        raise RuntimeError("DATABASE_URL is required.")
-    if url not in _sessionmakers:
-        _sessionmakers[url] = sessionmaker(
-            bind=get_engine(url),
+def get_sessionmaker(database_url: str | None = None, database_schema: str | None = None) -> sessionmaker[Session]:
+    url, schema = _database_config(database_url, database_schema)
+    key = (url, schema)
+    if key not in _sessionmakers:
+        _sessionmakers[key] = sessionmaker(
+            bind=get_engine(url, schema),
             autocommit=False,
             autoflush=False,
             expire_on_commit=False,
             future=True,
         )
-    return _sessionmakers[url]
+    return _sessionmakers[key]
 
 
-def get_session(database_url: str | None = None) -> Generator[Session, None, None]:
-    session_local = get_sessionmaker(database_url)
+def get_session(
+    database_url: str | None = None,
+    database_schema: str | None = None,
+) -> Generator[Session, None, None]:
+    session_local = get_sessionmaker(database_url, database_schema)
     with session_local() as session:
         yield session
 
 
-def check_database_ready(database_url: str | None = None) -> None:
-    with get_engine(database_url).connect() as connection:
+def check_database_ready(database_url: str | None = None, database_schema: str | None = None) -> None:
+    with get_engine(database_url, database_schema).connect() as connection:
         connection.execute(text("SELECT 1"))
 
 

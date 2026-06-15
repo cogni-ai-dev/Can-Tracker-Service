@@ -162,6 +162,7 @@ backups/
 *.dump
 *.dump.sha256
 *.sql
+!docker/can-postgres/initdb.sql
 
 # Spyder project settings
 .spyderproject

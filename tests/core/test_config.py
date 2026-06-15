@@ -12,6 +12,7 @@ def test_test_environment_uses_safe_defaults() -> None:
     settings = Settings(app_env="test")
 
     assert settings.database_url == "sqlite+pysqlite:///:memory:"
+    assert settings.database_schema is None
     assert settings.session_cookie_name == "can_tracker_session"
     assert settings.session_cookie_secure is False
     assert settings.app_secret_key is not None
@@ -29,6 +30,7 @@ def test_non_test_settings_accept_required_environment_values() -> None:
         app_env="local",
         app_secret_key="local-secret",
         database_url="postgresql+psycopg://user:pass@localhost:5432/can_tracker",
+        database_schema="can_tracker",
         pii_encryption_key="local-pii-encryption-key",
         pii_search_hash_key="local-pii-search-hash-key",
         cors_origins="http://127.0.0.1:8000, http://localhost:8000",
@@ -36,8 +38,24 @@ def test_non_test_settings_accept_required_environment_values() -> None:
     )
 
     assert settings.app_env == "local"
+    assert settings.database_schema == "can_tracker"
     assert settings.log_level == "DEBUG"
     assert settings.cors_origin_list == ["http://127.0.0.1:8000", "http://localhost:8000"]
+
+
+def test_database_schema_accepts_blank_as_disabled() -> None:
+    settings = Settings(app_env="test", database_schema="  ")
+
+    assert settings.database_schema is None
+
+
+@pytest.mark.parametrize(
+    "database_schema",
+    ["CanTracker", "1can_tracker", "can-tracker", "can tracker", "can.tracker"],
+)
+def test_database_schema_rejects_unsafe_identifiers(database_schema: str) -> None:
+    with pytest.raises(ValidationError, match="DATABASE_SCHEMA"):
+        Settings(app_env="test", database_schema=database_schema)
 
 
 def test_secure_session_cookies_are_required_outside_local_and_test() -> None:

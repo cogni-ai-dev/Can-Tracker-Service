@@ -6,7 +6,7 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PROJECT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 
 ENV_FILE=${ENV_FILE:-"$PROJECT_DIR/.env"}
-COMPOSE_FILE=${COMPOSE_FILE:-"$PROJECT_DIR/docker-compose.yml"}
+COMPOSE_FILE=${COMPOSE_FILE:-"$PROJECT_DIR/docker/can-postgres/docker-compose.yml"}
 BACKUP_DIR=${BACKUP_DIR:-"/var/backups/can-tracker"}
 RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-14}
 TIMESTAMP=$(date -u +"%Y%m%dT%H%M%SZ")

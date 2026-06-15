@@ -4,6 +4,7 @@ from sqlalchemy import engine_from_config, pool
 
 from alembic import context
 from app.core.config import get_settings
+from app.core.database import _connect_args
 from app.models import Base
 
 config = context.config
@@ -21,6 +22,15 @@ def database_url() -> str:
     return settings.database_url
 
 
+def database_schema() -> str | None:
+    return get_settings().database_schema
+
+
+def schema_config() -> dict[str, str]:
+    schema = database_schema()
+    return {"version_table_schema": schema} if schema else {}
+
+
 def run_migrations_offline() -> None:
     context.configure(
         url=database_url(),
@@ -29,6 +39,7 @@ def run_migrations_offline() -> None:
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
         compare_server_default=True,
+        **schema_config(),
     )
 
     with context.begin_transaction():
@@ -37,13 +48,16 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     configuration = config.get_section(config.config_ini_section, {})
-    configuration["sqlalchemy.url"] = database_url()
+    url = database_url()
+    schema = database_schema()
+    configuration["sqlalchemy.url"] = url
 
     connectable = engine_from_config(
         configuration,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
         future=True,
+        connect_args=_connect_args(url, schema),
     )
 
     with connectable.connect() as connection:
@@ -52,6 +66,7 @@ def run_migrations_online() -> None:
             target_metadata=target_metadata,
             compare_type=True,
             compare_server_default=True,
+            **schema_config(),
         )
 
         with context.begin_transaction():

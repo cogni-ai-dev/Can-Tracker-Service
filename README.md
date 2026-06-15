@@ -20,6 +20,7 @@ For local development, replace placeholders and set:
 
 - `APP_SECRET_KEY`
 - `DATABASE_URL`
+- `DATABASE_SCHEMA=can_tracker`
 - `PII_ENCRYPTION_KEY`
 - `PII_SEARCH_HASH_KEY`
 - `APP_ENV=local`
@@ -29,6 +30,8 @@ For local development, replace placeholders and set:
 Run the API on the host:
 
 ```bash
+export DATABASE_URL=postgresql+psycopg://can:can@127.0.0.1:5402/can
+export DATABASE_SCHEMA=can_tracker
 uv run alembic upgrade head
 uv run uvicorn app.main:app --reload
 ```
@@ -58,21 +61,23 @@ uv run ruff check .
 
 ## Docker Compose
 
-Compose is production-oriented. It requires `.env` values and does not publish
-PostgreSQL to the host. For local Compose, use non-production secrets and set
-`APP_ENV=local`, `SESSION_COOKIE_SECURE=false`, and
-`DATABASE_URL=postgresql+psycopg://<POSTGRES_USER>:<POSTGRES_PASSWORD>@postgres:5432/<POSTGRES_DB>`.
+Compose is split into a PostgreSQL stack and an API stack. For local Compose,
+use non-production secrets and set `APP_ENV=local`,
+`SESSION_COOKIE_SECURE=false`,
+`DATABASE_URL=postgresql+psycopg://can:can@host.docker.internal:5402/can`,
+and `DATABASE_SCHEMA=can_tracker`.
 
-Start API and PostgreSQL:
+Start PostgreSQL, then the API:
 
 ```bash
-docker compose --env-file .env up --build
+docker compose -f docker/can-postgres/docker-compose.yml up -d
+docker compose --env-file .env -f docker/can-tracker-service/docker-compose.yml up --build
 ```
 
-Compose publishes only the API:
+Compose publishes:
 
 - API: `http://${API_BIND:-127.0.0.1}:${API_PORT:-8000}`
-- PostgreSQL: internal Compose network only
+- PostgreSQL: `127.0.0.1:5402`
 
 The API container runs `alembic upgrade head` before starting Uvicorn.
 

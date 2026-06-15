@@ -13,7 +13,7 @@ export BOOTSTRAP_ADMIN_PASSWORD="<temporary-password>"
 ```
 
 ```bash
-docker compose --env-file .env run --rm \
+docker compose --env-file .env -f docker/can-tracker-service/docker-compose.yml run --rm \
   -e BOOTSTRAP_ADMIN_NAME \
   -e BOOTSTRAP_ADMIN_EMAIL \
   -e BOOTSTRAP_ADMIN_PASSWORD \

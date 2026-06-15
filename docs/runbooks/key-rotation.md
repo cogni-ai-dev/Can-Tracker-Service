@@ -9,7 +9,7 @@ Procedure:
 ```bash
 openssl rand -hex 32
 vi .env
-docker compose --env-file .env up -d api
+docker compose --env-file .env -f docker/can-tracker-service/docker-compose.yml up -d api
 ```
 
 After rotation, all users must log in again.
@@ -28,4 +28,3 @@ PII key rotation requires a planned migration that:
 6. Takes and tests a backup before and after the migration.
 
 Changing either PII key without that process can make stored client data unreadable or unsearchable.
-

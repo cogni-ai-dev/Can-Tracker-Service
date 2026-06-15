@@ -9,7 +9,7 @@ Complete this checklist before deploying to production.
 - [ ] `uv run pytest`
 - [ ] Migration applies to an empty database.
 - [ ] Migration applies to a copy of staging or production-like data.
-- [ ] Docker production build succeeds: `docker compose --env-file .env build api`.
+- [ ] Docker production build succeeds: `docker compose --env-file .env -f docker/can-tracker-service/docker-compose.yml build api`.
 
 ## Security Gates
 
@@ -18,7 +18,7 @@ Complete this checklist before deploying to production.
 - [ ] `APP_ENV=production`.
 - [ ] `SESSION_COOKIE_SECURE=true`.
 - [ ] `APP_SECRET_KEY`, `PII_ENCRYPTION_KEY`, and `PII_SEARCH_HASH_KEY` are independent strong values.
-- [ ] Postgres has no host-published port.
+- [ ] Postgres host port `5402` is protected by firewall rules or replaced with a private database endpoint.
 - [ ] API is behind TLS through a reverse proxy or approved load balancer.
 - [ ] PII masking tests pass.
 - [ ] Role authorization tests pass.
@@ -47,4 +47,3 @@ Complete this checklist before deploying to production.
 ## Review Gate
 
 - [ ] Final diff review has no unresolved high or medium findings for secrets, exposed ports, backup/restore gaps, or broken commands.
-

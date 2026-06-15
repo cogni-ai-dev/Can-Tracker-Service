@@ -27,7 +27,8 @@ Production values must satisfy:
 
 - `APP_ENV=production`
 - `SESSION_COOKIE_SECURE=true`
-- `DATABASE_URL=postgresql+psycopg://<POSTGRES_USER>:<POSTGRES_PASSWORD>@postgres:5432/<POSTGRES_DB>`
+- `DATABASE_URL=postgresql+psycopg://can:can@host.docker.internal:5402/can`
+- `DATABASE_SCHEMA=can_tracker`
 - `CORS_ORIGINS=https://<production-domain>`
 - `BACKUP_RETENTION_DAYS` is at least `14`
 - `API_BIND=127.0.0.1` when a local reverse proxy is used; use `0.0.0.0` only if the API itself is intentionally public.
@@ -35,9 +36,9 @@ Production values must satisfy:
 ## Deploy
 
 ```bash
-docker compose --env-file .env build api
-docker compose --env-file .env up -d postgres
-docker compose --env-file .env up -d api
+docker compose -f docker/can-postgres/docker-compose.yml up -d
+docker compose --env-file .env -f docker/can-tracker-service/docker-compose.yml build api
+docker compose --env-file .env -f docker/can-tracker-service/docker-compose.yml up -d api
 ```
 
 The API container runs `alembic upgrade head` before starting Uvicorn.
@@ -45,8 +46,9 @@ The API container runs `alembic upgrade head` before starting Uvicorn.
 ## Verify
 
 ```bash
-docker compose --env-file .env ps
-docker compose --env-file .env logs --tail=100 api
+docker compose -f docker/can-postgres/docker-compose.yml ps
+docker compose --env-file .env -f docker/can-tracker-service/docker-compose.yml ps
+docker compose --env-file .env -f docker/can-tracker-service/docker-compose.yml logs --tail=100 api
 curl -fsS http://127.0.0.1:8000/health
 curl -fsS http://127.0.0.1:8000/ready
 curl -fsS http://127.0.0.1:8000/api/v1/meta
@@ -71,6 +73,5 @@ Before handing the service to operations:
 - Run one backup with [database-backup-and-restore.md](database-backup-and-restore.md).
 - Restore that backup to a clean database at least once.
 - Verify login, dashboard counters, and one family detail page after restore.
-- Confirm Postgres is not published with `docker compose --env-file .env ps` and firewall rules.
+- Confirm Postgres host port `5402` is not exposed beyond approved hosts and firewall rules.
 - Confirm `.env` is not committed.
-
