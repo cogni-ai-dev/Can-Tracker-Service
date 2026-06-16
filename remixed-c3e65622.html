@@ -235,6 +235,10 @@
   .admin-toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
   .admin-toolbar input { min-width:220px; }
   .admin-current { font-size:10.5px; color:var(--text-muted); font-weight:600; }
+  .role-access-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap:10px; padding:14px 18px; }
+  .role-access-item { border:1px solid var(--border); border-radius:8px; padding:10px; background:var(--surface); }
+  .role-access-title { font-size:12px; font-weight:700; color:var(--navy); margin-bottom:5px; }
+  .role-access-text { font-size:11px; line-height:1.4; color:var(--text-secondary); }
 
   /* TOOLTIP */
   [title] { cursor: help; }
@@ -640,6 +644,27 @@
         </select>
         <input type="text" id="admin-user-search" placeholder="Search users..." oninput="renderAdminUsers()">
       </div>
+      <div class="section" data-admin-only>
+        <div class="section-header"><div class="section-title">Role Access</div></div>
+        <div class="role-access-grid">
+          <div class="role-access-item">
+            <div class="role-access-title">Admin</div>
+            <div class="role-access-text">Full access: users, audit logs, imports, all families, members, reports, and sensitive values.</div>
+          </div>
+          <div class="role-access-item">
+            <div class="role-access-title">Ops</div>
+            <div class="role-access-text">Create, edit, delete, import, and report across all records. No user management or audit logs.</div>
+          </div>
+          <div class="role-access-item">
+            <div class="role-access-title">RM</div>
+            <div class="role-access-text">Assigned families only. Can update remarks only; cannot create, delete, or manage users.</div>
+          </div>
+          <div class="role-access-item">
+            <div class="role-access-title">Management</div>
+            <div class="role-access-text">Read-only access to all families, members, dashboard, tasks, reports, and active RM list.</div>
+          </div>
+        </div>
+      </div>
       <div class="section">
         <div class="section-header"><div class="section-title" id="admin-users-title">Users</div></div>
         <div class="tbl-wrap">
@@ -777,6 +802,26 @@
             <option value="true">Active</option>
             <option value="false">Inactive</option>
           </select>
+        </div>
+        <div class="form-group full">
+          <div class="role-access-grid" style="padding:0;">
+            <div class="role-access-item">
+              <div class="role-access-title">Admin</div>
+              <div class="role-access-text">Full access, including user management, audit logs, imports, and sensitive values.</div>
+            </div>
+            <div class="role-access-item">
+              <div class="role-access-title">Ops</div>
+              <div class="role-access-text">Operational write access to all records and imports; no user management.</div>
+            </div>
+            <div class="role-access-item">
+              <div class="role-access-title">RM</div>
+              <div class="role-access-text">Assigned families only; remarks-only updates.</div>
+            </div>
+            <div class="role-access-item">
+              <div class="role-access-title">Management</div>
+              <div class="role-access-text">Read-only access across dashboards, records, tasks, and reports.</div>
+            </div>
+          </div>
         </div>
         <div class="form-group full">
           <label id="u-password-label">Password *</label>

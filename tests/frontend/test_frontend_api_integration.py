@@ -89,6 +89,7 @@ def test_status_and_task_tabs_use_backend_filters_not_local_calculations() -> No
 def test_admin_user_management_page_uses_users_api() -> None:
     assert 'id="page-admin-users"' in HTML
     assert "Admin Portal" in HTML
+    assert "Role Access" in HTML
     assert "navigate('admin-users')" in HTML
     required_snippets = [
         "api.get('/users'",
@@ -118,6 +119,18 @@ def test_admin_user_modal_handles_create_edit_password_rules() -> None:
     assert "Leave blank to keep the current password." in SCRIPT
     assert "Password is required for new users." in SCRIPT
     assert "if (!isEdit || password) payload.password = password;" in SCRIPT
+
+
+def test_admin_role_access_reference_explains_supported_roles() -> None:
+    required_text = [
+        "Full access",
+        "No user management",
+        "Assigned families only",
+        "remarks-only updates",
+        "Read-only access",
+    ]
+    for text in required_text:
+        assert text in HTML
 
 
 def test_admin_portal_navigation_is_admin_only() -> None:
