@@ -74,9 +74,16 @@ docker compose -f docker/can-postgres/docker-compose.yml up -d
 docker compose --env-file .env -f docker/can-tracker-service/docker-compose.yml up --build
 ```
 
+In a second terminal, serve the standalone UI:
+
+```bash
+uv run python scripts/serve_ui.py
+```
+
 Compose publishes:
 
 - API: `http://${API_BIND:-127.0.0.1}:${API_PORT:-8000}`
+- UI: `http://127.0.0.1:8081`
 - PostgreSQL: `127.0.0.1:5402`
 
 The API container runs `alembic upgrade head` before starting Uvicorn.
