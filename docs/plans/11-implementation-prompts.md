@@ -59,7 +59,7 @@ Implement docs/plans/01-domain-model-and-business-rules.md from start to finish.
 Before editing, read:
 - docs/plans/00-master-backend-plan.md
 - docs/plans/01-domain-model-and-business-rules.md
-- remixed-c3e65622.html
+- can_tracker_dashboard.html
 
 Goal:
 Create the canonical domain layer for enums, compliance formulas, task generation, and report definitions. Do not create database models or API routes in this prompt.
@@ -283,7 +283,7 @@ Before editing, read:
 - docs/plans/01-domain-model-and-business-rules.md
 - docs/plans/05-family-member-crud-apis.md
 - docs/plans/06-dashboard-and-computed-tasks.md
-- remixed-c3e65622.html
+- can_tracker_dashboard.html
 
 Goal:
 Add dashboard summary, family summary, task list, and task summary endpoints using persisted data and canonical formulas.
@@ -301,7 +301,7 @@ Implementation requirements:
 10. Add tests for all counters, percentages, task types, filters, empty data, and RM scoping.
 
 Subagent use:
-- Use cavecrew-investigator to compare frontend calculations in remixed-c3e65622.html.
+- Use cavecrew-investigator to compare frontend calculations in can_tracker_dashboard.html.
 - Use the main thread for aggregate query design and scoping.
 - Use cavecrew-reviewer to check formula parity, RM scoping, and pagination.
 
@@ -432,7 +432,7 @@ Before editing, read:
 - docs/plans/06-dashboard-and-computed-tasks.md
 - docs/plans/08-reporting-and-exports.md
 - docs/plans/09-frontend-api-integration.md
-- remixed-c3e65622.html
+- can_tracker_dashboard.html
 
 Goal:
 Replace the generated HTML's in-memory data flow with backend API calls while preserving the current v1 UI and workflows.
@@ -549,4 +549,3 @@ Final response must include:
 - Non-blocking risks.
 - Recommended next action.
 ```
-

@@ -4,16 +4,22 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_app_settings, get_db, require_roles
+from app.api.deps import get_app_settings, get_db, require_module_roles
 from app.core.config import Settings
-from app.domain.enums import TaskPriority, TaskType, UserRole
+from app.domain.enums import ModuleCode, ModuleRole, TaskPriority, TaskType
 from app.models.user import User
 from app.schemas.tasks import TaskListFilters, TaskListResponse, TaskSummaryRead
 from app.services.computed_tasks import get_task_summary, list_computed_tasks
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
-require_task_read = require_roles(UserRole.ADMIN, UserRole.OPS, UserRole.RM, UserRole.MANAGEMENT)
+require_task_read = require_module_roles(
+    ModuleCode.CAN_COMPLIANCE,
+    ModuleRole.CAN_ADMIN,
+    ModuleRole.CAN_OPS,
+    ModuleRole.CAN_RM,
+    ModuleRole.CAN_MANAGEMENT,
+)
 
 
 def task_list_filters(

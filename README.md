@@ -59,6 +59,28 @@ uv run ruff format . --check
 uv run ruff check .
 ```
 
+## React Frontend
+
+The long-term UI lives under `frontend/` as the **MFU Operations Portal**. It
+uses React, TypeScript, Vite, Tailwind, React Router, `lucide-react`, and
+`recharts`.
+
+Run the API first, then start the frontend:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Vite serves the app on `http://127.0.0.1:5173` and proxies `/api` to the local
+FastAPI backend at `http://127.0.0.1:8000`.
+
+The new React app keeps Compliance wired to the existing backend APIs. Client
+CRM uses local/mock adapters in v1 and documents the future `/api/v1/crm/*`
+contracts in code. The standalone `can_tracker_dashboard.html` remains as a
+legacy transition shell while the React app becomes the primary frontend.
+
 ## Docker Compose
 
 Compose is split into a PostgreSQL stack and an API stack. For local Compose,

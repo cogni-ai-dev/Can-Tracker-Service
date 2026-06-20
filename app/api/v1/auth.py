@@ -4,8 +4,16 @@ from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import clear_session_cookie, get_app_settings, get_current_session, get_db, require_active_user, utc_now
+from app.api.deps import (
+    clear_session_cookie,
+    get_app_settings,
+    get_current_session,
+    get_db,
+    require_active_user,
+    utc_now,
+)
 from app.api.errors import raise_api_error
+from app.api.v1.users import user_to_read
 from app.core.config import Settings
 from app.core.security import hash_password, hash_session_token, new_session_token, verify_password
 from app.models.user import User, UserSession
@@ -26,7 +34,7 @@ def login(
     response: Response,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_app_settings),
-) -> dict[str, User]:
+) -> dict[str, dict[str, object]]:
     user = db.scalar(select(User).where(User.email == payload.email, User.deleted_at.is_(None)))
     if user is None or not user.is_active or not verify_password(payload.password, user.password_hash):
         raise_api_error(
@@ -56,7 +64,7 @@ def login(
         samesite="lax",
         path="/",
     )
-    return {"user": user}
+    return {"user": user_to_read(user)}
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -119,5 +127,5 @@ def change_password(
 
 
 @router.get("/me", response_model=UserRead)
-def me(current_user: User = Depends(require_active_user)) -> User:
-    return current_user
+def me(current_user: User = Depends(require_active_user)) -> dict[str, object]:
+    return user_to_read(current_user)

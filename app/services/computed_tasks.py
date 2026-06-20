@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session
 from app.api.errors import raise_api_error
 from app.core.config import Settings
 from app.core.pii import email_search_hash, mobile_search_hash, pan_search_hash
-from app.domain.enums import TaskType, UserRole
+from app.domain.access import user_is_can_rm
+from app.domain.enums import TaskType
 from app.domain.tasks import TASK_RULES, mask_can_number
 from app.models.family import Family, Member
 from app.models.user import User
@@ -22,7 +23,7 @@ def _forbidden(message: str) -> None:
 
 
 def _effective_rm_id(actor: User, requested_rm_id: UUID | None) -> UUID | None:
-    if actor.role == UserRole.RM:
+    if user_is_can_rm(actor):
         if requested_rm_id is not None:
             _forbidden("RM users are automatically scoped and cannot use rm_id filters.")
         return actor.id

@@ -11,7 +11,13 @@ from app.api.errors import raise_api_error
 from app.core.config import Settings
 from app.core.database import get_sessionmaker
 from app.core.security import hash_session_token
-from app.domain.enums import UserRole
+from app.domain.access import (
+    user_can_read_all_can,
+    user_can_write_all_can,
+    user_has_module_role,
+    user_is_can_rm,
+)
+from app.domain.enums import ModuleCode, ModuleRole, UserRole
 from app.models.user import User, UserSession
 
 
@@ -116,18 +122,31 @@ def require_roles(*allowed_roles: UserRole) -> Callable[[User], User]:
     return dependency
 
 
+def require_module_roles(module_code: ModuleCode, *allowed_roles: ModuleRole) -> Callable[[User], User]:
+    def dependency(current_user: User = Depends(require_active_user)) -> User:
+        if not user_has_module_role(current_user, module_code, *allowed_roles):
+            raise_api_error(
+                status.HTTP_403_FORBIDDEN,
+                "forbidden",
+                "User module role is not permitted for this action.",
+            )
+        return current_user
+
+    return dependency
+
+
 def user_can_view_family(user: User, primary_rm_id: UUID | str | None) -> bool:
-    if user.role in {UserRole.ADMIN, UserRole.OPS, UserRole.MANAGEMENT}:
+    if user_can_read_all_can(user):
         return True
-    if user.role == UserRole.RM:
+    if user_is_can_rm(user):
         return primary_rm_id is not None and str(primary_rm_id) == str(user.id)
     return False
 
 
 def user_can_update_family(user: User, primary_rm_id: UUID | str | None) -> bool:
-    if user.role in {UserRole.ADMIN, UserRole.OPS}:
+    if user_can_write_all_can(user):
         return True
-    if user.role == UserRole.RM:
+    if user_is_can_rm(user):
         return primary_rm_id is not None and str(primary_rm_id) == str(user.id)
     return False
 

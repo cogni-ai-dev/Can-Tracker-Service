@@ -4,9 +4,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_app_settings, get_db, get_request_id, require_roles, require_user
+from app.api.deps import get_app_settings, get_db, get_request_id, require_module_roles, require_user
 from app.core.config import Settings
-from app.domain.enums import KycStatus, PayeezzStatus, UserRole, VerificationStatus
+from app.domain.enums import KycStatus, ModuleCode, ModuleRole, PayeezzStatus, VerificationStatus
 from app.models.user import User
 from app.schemas.members import MemberListFilters, MemberListResponse, MemberRead, MemberUpdate
 from app.services.family_members import (
@@ -18,8 +18,14 @@ from app.services.family_members import (
 
 router = APIRouter(prefix="/members", tags=["members"])
 
-require_member_read = require_roles(UserRole.ADMIN, UserRole.OPS, UserRole.RM, UserRole.MANAGEMENT)
-require_member_delete = require_roles(UserRole.ADMIN, UserRole.OPS)
+require_member_read = require_module_roles(
+    ModuleCode.CAN_COMPLIANCE,
+    ModuleRole.CAN_ADMIN,
+    ModuleRole.CAN_OPS,
+    ModuleRole.CAN_RM,
+    ModuleRole.CAN_MANAGEMENT,
+)
+require_member_delete = require_module_roles(ModuleCode.CAN_COMPLIANCE, ModuleRole.CAN_ADMIN, ModuleRole.CAN_OPS)
 
 
 def _request_id(request: Request) -> str | None:

@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import Settings
 from app.core.pii import email_search_hash, mobile_search_hash, pan_search_hash
-from app.domain.enums import KycStatus, PayeezzStatus, UserRole, VerificationStatus
+from app.domain.access import user_is_can_rm
+from app.domain.enums import KycStatus, PayeezzStatus, VerificationStatus
 from app.models.family import Family, Member
 from app.models.user import User
 
@@ -18,7 +19,7 @@ def _status_value(value: object | None) -> object | None:
 
 def member_visibility_filters(user: User) -> list[object]:
     filters: list[object] = [Member.deleted_at.is_(None), Family.deleted_at.is_(None)]
-    if user.role == UserRole.RM:
+    if user_is_can_rm(user):
         filters.append(Family.primary_rm_id == user.id)
     return filters
 

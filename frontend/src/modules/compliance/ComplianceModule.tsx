@@ -1,0 +1,1641 @@
+import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Download, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+
+import { Badge, Card, EmptyState, PageHeader, formatINR } from '../../components/ui';
+import { complianceApi } from '../../lib/api';
+import {
+  canCreateFamily,
+  canCreateMember,
+  canDeleteMember,
+  canEditFamily,
+  canEditMember,
+  isCanRM,
+} from '../../lib/access';
+import type {
+  CurrentUser,
+  DashboardSummary,
+  Family,
+  FamilyDashboard,
+  FamilyPayload,
+  KycStatus,
+  Member,
+  MemberPayload,
+  PayeezzStatus,
+  ReportExportFormat,
+  ReportType,
+  TaskItem,
+  TaskSummary,
+  TaskType,
+  UserRecord,
+  VerificationStatus,
+} from '../../types';
+
+const PAGE_LIMIT = 500;
+
+const pageCopy: Record<string, { title: string; subtitle: string }> = {
+  dashboard: {
+    title: 'Compliance Dashboard',
+    subtitle: 'CAN, KYC, PayEezz, contact verification, and pending compliance work.',
+  },
+  families: {
+    title: 'Families',
+    subtitle: 'Manage family master records, members, CANs, and compliance completion.',
+  },
+  'family-detail': {
+    title: 'Family Detail',
+    subtitle: 'Review family-level compliance, member records, and CAN status.',
+  },
+  kyc: {
+    title: 'KYC Status',
+    subtitle: 'Track validated, re-KYC pending, and no-KYC clients.',
+  },
+  payeezz: {
+    title: 'PayEezz',
+    subtitle: 'Track payment mandate availability and aggregator acceptance.',
+  },
+  contact: {
+    title: 'Contact Verification',
+    subtitle: 'Review mobile, email, and nominee verification gaps.',
+  },
+  tasks: {
+    title: 'Pending Tasks',
+    subtitle: 'Computed compliance follow-ups grouped by task category.',
+  },
+};
+
+const reportLabels: Record<ReportType, string> = {
+  kyc_pending: 'KYC Pending Report',
+  payeezz_pending: 'PayEezz Pending Report',
+  contact_pending: 'Contact Pending Report',
+  family_compliance: 'Family Compliance Report',
+  rm_tasks: 'RM-wise Pending Tasks Report',
+  full: 'Full CAN Database Export',
+};
+
+const kycStatuses: KycStatus[] = ['Validated', 'Registered', 'No KYC'];
+const payeezzStatuses: PayeezzStatus[] = ['Aggregator Accepted', 'Sent for Approval', 'Not Available'];
+const verificationStatuses: VerificationStatus[] = ['Verified', 'Not Verified'];
+
+type ModalState =
+  | { type: 'family'; mode: 'create'; family?: undefined }
+  | { type: 'family'; mode: 'edit'; family: Family | FamilyDashboard }
+  | { type: 'member'; mode: 'create'; familyId: string; member?: undefined }
+  | { type: 'member'; mode: 'edit'; familyId: string; member: Member }
+  | null;
+
+type LoadState<T> = {
+  loading: boolean;
+  error: string;
+  data: T | null;
+};
+
+export function ComplianceModule({ user }: { user: CurrentUser }) {
+  const { page = 'dashboard', familyId } = useParams();
+  const navigate = useNavigate();
+  const currentPage = familyId ? 'family-detail' : page;
+  const config = pageCopy[currentPage] || pageCopy.dashboard;
+  const [rms, setRms] = useState<UserRecord[]>([]);
+  const [rmId, setRmId] = useState('');
+  const [rmLoadError, setRmLoadError] = useState('');
+  const [modal, setModal] = useState<ModalState>(null);
+  const [refreshToken, setRefreshToken] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    complianceApi.rms()
+      .then((items) => {
+        if (!cancelled) {
+          setRms(items);
+          setRmLoadError('');
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setRms(isCanRM(user) ? [user as UserRecord] : []);
+          setRmLoadError(friendlyError(error));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  const rmParams = rmId ? { rm_id: rmId } : {};
+
+  function refresh() {
+    setRefreshToken((value) => value + 1);
+  }
+
+  async function openMemberEditorById(familyId: string, memberId: string) {
+    const member = await complianceApi.member(memberId);
+    setModal({ type: 'member', mode: 'edit', familyId, member });
+  }
+
+  function closeModal(refreshAfterClose = false) {
+    setModal(null);
+    if (refreshAfterClose) refresh();
+  }
+
+  return (
+    <div>
+      <PageHeader
+        title={config.title}
+        subtitle={config.subtitle}
+        action={(
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={rmId}
+              onChange={(event) => setRmId(event.target.value)}
+              className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              aria-label="Relationship manager filter"
+            >
+              <option value="">All RMs</option>
+              {rms.map((rm) => <option key={rm.id} value={rm.id}>{rm.name}</option>)}
+            </select>
+            <button
+              type="button"
+              onClick={refresh}
+              className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              <RefreshCw size={16} /> Refresh
+            </button>
+          </div>
+        )}
+      />
+      {rmLoadError && <div className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">{rmLoadError}</div>}
+      <div className="mb-4 flex flex-wrap gap-2 text-sm">
+        {Object.entries(pageCopy).map(([key, item]) => (
+          key !== 'family-detail' && (
+            <Link
+              key={key}
+              to={`/compliance/${key}`}
+              className={`rounded-md px-3 py-1.5 font-medium ${key === page && !familyId ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'}`}
+            >
+              {item.title}
+            </Link>
+          )
+        ))}
+      </div>
+      <CanSearch onOpenFamily={(id) => navigate(`/compliance/families/${id}`)} />
+      {currentPage === 'dashboard' && <DashboardPage rmParams={rmParams} onOpenFamily={(id) => navigate(`/compliance/families/${id}`)} refreshToken={refreshToken} />}
+      {currentPage === 'families' && (
+        <FamiliesPage
+          user={user}
+          rmParams={rmParams}
+          rms={rms}
+          refreshToken={refreshToken}
+          onOpenFamily={(id) => navigate(`/compliance/families/${id}`)}
+          onEditFamily={(family) => setModal({ type: 'family', mode: 'edit', family })}
+          onCreateFamily={() => setModal({ type: 'family', mode: 'create' })}
+          onAddMember={(id) => setModal({ type: 'member', mode: 'create', familyId: id })}
+        />
+      )}
+      {currentPage === 'family-detail' && familyId && (
+        <FamilyDetailPage
+          familyId={familyId}
+          user={user}
+          refreshToken={refreshToken}
+          onBack={() => navigate('/compliance/families')}
+          onEditFamily={(family) => setModal({ type: 'family', mode: 'edit', family })}
+          onAddMember={(id) => setModal({ type: 'member', mode: 'create', familyId: id })}
+          onEditMember={(id, member) => setModal({ type: 'member', mode: 'edit', familyId: id, member })}
+          onChanged={refresh}
+        />
+      )}
+      {currentPage === 'kyc' && (
+        <KycPage
+          user={user}
+          rmParams={rmParams}
+          refreshToken={refreshToken}
+          onOpenFamily={(id) => navigate(`/compliance/families/${id}`)}
+          onEditMember={(id, member) => setModal({ type: 'member', mode: 'edit', familyId: id, member })}
+        />
+      )}
+      {currentPage === 'payeezz' && (
+        <PayeezzPage
+          user={user}
+          rmParams={rmParams}
+          refreshToken={refreshToken}
+          onOpenFamily={(id) => navigate(`/compliance/families/${id}`)}
+          onEditMember={(id, member) => setModal({ type: 'member', mode: 'edit', familyId: id, member })}
+        />
+      )}
+      {currentPage === 'contact' && (
+        <ContactPage
+          user={user}
+          rmParams={rmParams}
+          refreshToken={refreshToken}
+          onOpenFamily={(id) => navigate(`/compliance/families/${id}`)}
+          onEditMember={(id, member) => setModal({ type: 'member', mode: 'edit', familyId: id, member })}
+        />
+      )}
+      {currentPage === 'tasks' && (
+        <TasksPage
+          user={user}
+          rmParams={rmParams}
+          refreshToken={refreshToken}
+          onOpenFamily={(id) => navigate(`/compliance/families/${id}`)}
+          onFixMember={openMemberEditorById}
+        />
+      )}
+      {modal?.type === 'family' && (
+        <FamilyModal
+          user={user}
+          rms={rms}
+          modal={modal}
+          onClose={() => closeModal()}
+          onSaved={(family) => {
+            closeModal(true);
+            if (modal.mode === 'create') navigate(`/compliance/families/${family.id}`);
+          }}
+        />
+      )}
+      {modal?.type === 'member' && (
+        <MemberModal
+          user={user}
+          modal={modal}
+          onClose={() => closeModal()}
+          onSaved={() => closeModal(true)}
+        />
+      )}
+    </div>
+  );
+}
+
+function DashboardPage({
+  rmParams,
+  refreshToken,
+  onOpenFamily,
+}: {
+  rmParams: { rm_id?: string };
+  refreshToken: number;
+  onOpenFamily: (familyId: string) => void;
+}) {
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [taskSummary, setTaskSummary] = useState<TaskSummary | null>(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setError('');
+    Promise.all([
+      complianceApi.dashboardSummary(rmParams),
+      complianceApi.tasks({ ...rmParams, limit: 8 }),
+      complianceApi.tasksSummary(rmParams),
+    ])
+      .then(([nextSummary, nextTasks, nextTaskSummary]) => {
+        if (!cancelled) {
+          setSummary(nextSummary);
+          setTasks(nextTasks.items);
+          setTaskSummary(nextTaskSummary);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) setError(friendlyError(error));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshToken, rmParams.rm_id]);
+
+  if (error) return <EmptyState title="Compliance dashboard unavailable" detail={error} />;
+  if (!summary || !taskSummary) return <LoadingBlock label="Loading dashboard..." />;
+
+  const chartData = [
+    { name: 'KYC Validated', value: summary.kyc_validated },
+    { name: 'KYC Pending', value: summary.kyc_pending },
+    { name: 'PayEezz Accepted', value: summary.payeezz_accepted },
+    { name: 'PayEezz Pending', value: summary.payeezz_pending },
+    { name: 'Mobile Pending', value: summary.mobile_not_verified },
+    { name: 'Email Pending', value: summary.email_not_verified },
+    { name: 'Nominee Pending', value: summary.nominee_not_verified },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard label="Total Clients" value={summary.total_clients} tone="blue" />
+        <MetricCard label="Total Families" value={summary.total_families} tone="slate" />
+        <MetricCard label="KYC Pending" value={summary.kyc_pending} tone={summary.kyc_pending ? 'red' : 'green'} detail={`${summary.kyc_pending_pct}% pending`} />
+        <MetricCard label="PayEezz Pending" value={summary.payeezz_pending} tone={summary.payeezz_pending ? 'red' : 'green'} detail={`${summary.payeezz_pending_pct}% pending`} />
+      </div>
+      <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
+        <Card>
+          <div className="mb-3 text-sm font-semibold text-slate-900">Compliance Summary</div>
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} angle={-18} textAnchor="end" height={70} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                <Tooltip />
+                <Bar dataKey="value" fill="#2563eb" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+        <Card>
+          <div className="text-sm font-semibold text-slate-900">Status Completion</div>
+          <div className="mt-4 space-y-4">
+            <ProgressRow label="KYC Validated" value={summary.kyc_validated_pct} tone="green" />
+            <ProgressRow label="PayEezz Accepted" value={summary.payeezz_accepted_pct} tone="green" />
+            <ProgressRow label="Mobile Verified" value={percent(summary.mobile_verified, summary.total_clients)} tone="blue" />
+            <ProgressRow label="Email Verified" value={percent(summary.email_verified, summary.total_clients)} tone="blue" />
+            <ProgressRow label="Nominee Verified" value={percent(summary.nominee_verified, summary.total_clients)} tone="blue" />
+          </div>
+        </Card>
+      </div>
+      <div className="grid gap-4 xl:grid-cols-[1fr_1.35fr]">
+        <Card>
+          <div className="text-sm font-semibold text-slate-900">Pending Task Mix</div>
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <MiniStat label="Total" value={taskSummary.total_tasks} />
+            <MiniStat label="KYC" value={taskSummary.kyc} />
+            <MiniStat label="PayEezz" value={taskSummary.payeezz} />
+            <MiniStat label="Mobile" value={taskSummary.mobile} />
+            <MiniStat label="Email" value={taskSummary.email} />
+            <MiniStat label="Nominee" value={taskSummary.nominee} />
+          </div>
+        </Card>
+        <Card>
+          <div className="mb-3 flex items-center justify-between">
+            <div className="text-sm font-semibold text-slate-900">Top Pending Tasks</div>
+            <Link className="text-sm font-semibold text-blue-600" to="/compliance/tasks">View all</Link>
+          </div>
+          <TaskList tasks={tasks} onOpenFamily={onOpenFamily} />
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function FamiliesPage({
+  user,
+  rms,
+  rmParams,
+  refreshToken,
+  onOpenFamily,
+  onEditFamily,
+  onCreateFamily,
+  onAddMember,
+}: {
+  user: CurrentUser;
+  rms: UserRecord[];
+  rmParams: { rm_id?: string };
+  refreshToken: number;
+  onOpenFamily: (familyId: string) => void;
+  onEditFamily: (family: Family) => void;
+  onCreateFamily: () => void;
+  onAddMember: (familyId: string) => void;
+}) {
+  const [families, setFamilies] = useState<Family[]>([]);
+  const [total, setTotal] = useState(0);
+  const [filter, setFilter] = useState('all');
+  const [query, setQuery] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError('');
+    complianceApi.families({
+      ...rmParams,
+      q: query,
+      status_filter: filter,
+      limit: PAGE_LIMIT,
+      sort: 'family_head_name',
+    })
+      .then((response) => {
+        if (!cancelled) {
+          setFamilies(response.items);
+          setTotal(response.total);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) setError(friendlyError(error));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [filter, query, refreshToken, rmParams.rm_id]);
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <div className="flex flex-wrap items-center gap-2">
+          {[
+            ['all', 'All Families'],
+            ['kyc_pending', 'KYC Pending'],
+            ['payeezz_pending', 'PayEezz Pending'],
+            ['contact_pending', 'Contact Pending'],
+            ['nominee_pending', 'Nominee Pending'],
+          ].map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setFilter(value)}
+              className={`rounded-full px-3 py-1.5 text-sm font-semibold ${filter === value ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+            >
+              {label}
+            </button>
+          ))}
+          <div className="ml-auto flex min-w-64 items-center gap-2">
+            <Search size={16} className="text-slate-400" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search families"
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          {canCreateFamily(user) && (
+            <button
+              type="button"
+              onClick={onCreateFamily}
+              className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              <Plus size={16} /> Add Family
+            </button>
+          )}
+        </div>
+      </Card>
+      {loading && <LoadingBlock label="Loading families..." />}
+      {error && <EmptyState title="Families unavailable" detail={error} />}
+      {!loading && !error && (
+        <>
+          <div className="text-sm text-slate-500">Showing {families.length} of {total} families</div>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {families.map((family) => (
+              <FamilyCard
+                key={family.id}
+                family={family}
+                rmName={rms.find((rm) => rm.id === family.primary_rm.id)?.name || family.primary_rm.name}
+                canEdit={canEditFamily(user)}
+                canAddMember={canCreateMember(user)}
+                onOpen={() => onOpenFamily(family.id)}
+                onEdit={() => onEditFamily(family)}
+                onAddMember={() => onAddMember(family.id)}
+              />
+            ))}
+          </div>
+          {!families.length && <EmptyState title="No families found" detail="Adjust filters or search text to find a family." />}
+        </>
+      )}
+    </div>
+  );
+}
+
+function FamilyDetailPage({
+  familyId,
+  user,
+  refreshToken,
+  onBack,
+  onEditFamily,
+  onAddMember,
+  onEditMember,
+  onChanged,
+}: {
+  familyId: string;
+  user: CurrentUser;
+  refreshToken: number;
+  onBack: () => void;
+  onEditFamily: (family: FamilyDashboard) => void;
+  onAddMember: (familyId: string) => void;
+  onEditMember: (familyId: string, member: Member) => void;
+  onChanged: () => void;
+}) {
+  const [state, setState] = useState<LoadState<FamilyDashboard>>({ loading: true, error: '', data: null });
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setState({ loading: true, error: '', data: null });
+    complianceApi.familyDashboard(familyId)
+      .then((data) => {
+        if (!cancelled) setState({ loading: false, error: '', data });
+      })
+      .catch((error) => {
+        if (!cancelled) setState({ loading: false, error: friendlyError(error), data: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [familyId, refreshToken]);
+
+  async function exportFamily() {
+    try {
+      await complianceApi.exportReport('full', 'csv', { family_id: familyId });
+      setMessage('Family CSV export started.');
+    } catch (error) {
+      setMessage(friendlyError(error));
+    }
+  }
+
+  async function deleteMember(member: Member) {
+    if (!canDeleteMember(user)) return;
+    if (!window.confirm(`Delete member ${member.name}?`)) return;
+    try {
+      await complianceApi.deleteMember(member.id);
+      setMessage('Member deleted.');
+      onChanged();
+    } catch (error) {
+      setMessage(friendlyError(error));
+    }
+  }
+
+  if (state.loading) return <LoadingBlock label="Loading family details..." />;
+  if (state.error || !state.data) return <EmptyState title="Family unavailable" detail={state.error || 'Family was not found.'} />;
+
+  const family = state.data;
+  const memberCount = family.number_of_members || family.members.length;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" onClick={onBack} className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+          Back to Families
+        </button>
+        {canEditFamily(user) && (
+          <button type="button" onClick={() => onEditFamily(family)} className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            <Pencil size={16} /> Edit Family
+          </button>
+        )}
+        {canCreateMember(user) && (
+          <button type="button" onClick={() => onAddMember(family.id)} className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+            <Plus size={16} /> Add Member
+          </button>
+        )}
+        <button type="button" onClick={exportFamily} className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+          <Download size={16} /> Export CSV
+        </button>
+      </div>
+      {message && <div className="rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-700">{message}</div>}
+      <Card>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="text-xl font-bold text-slate-950">{family.family_head_name}</div>
+            <div className="mt-1 text-sm text-slate-500">{family.family_code} | RM: {family.primary_rm.name}</div>
+          </div>
+          <Badge tone="blue">{memberCount} members</Badge>
+        </div>
+        {family.remarks && <p className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600">{family.remarks}</p>}
+      </Card>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <MetricCard label="Members" value={memberCount} tone="slate" />
+        <MetricCard label="Total CANs" value={family.total_cans} tone="blue" />
+        <MetricCard label="KYC" value={`${family.kyc_completion_pct}%`} tone={family.kyc_completion_pct === 100 ? 'green' : 'red'} />
+        <MetricCard label="PayEezz" value={`${family.payeezz_completion_pct}%`} tone={family.payeezz_completion_pct === 100 ? 'green' : 'red'} />
+        <MetricCard label="Contact" value={`${Math.round((family.mobile_verification_pct + family.email_verification_pct + family.nominee_verification_pct) / 3)}%`} tone="yellow" />
+      </div>
+      <Card>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="text-sm font-semibold text-slate-900">Members</div>
+          {canCreateMember(user) && (
+            <button type="button" onClick={() => onAddMember(family.id)} className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700">
+              <Plus size={14} /> Add Member
+            </button>
+          )}
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+              <tr>
+                <th className="px-3 py-2">Name</th>
+                <th className="px-3 py-2">CAN</th>
+                <th className="px-3 py-2">PAN</th>
+                <th className="px-3 py-2">KYC</th>
+                <th className="px-3 py-2">Mobile</th>
+                <th className="px-3 py-2">Email</th>
+                <th className="px-3 py-2">Nominee</th>
+                <th className="px-3 py-2">PayEezz</th>
+                <th className="px-3 py-2">Bank</th>
+                <th className="px-3 py-2">Updated</th>
+                <th className="px-3 py-2">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {family.members.map((member) => (
+                <tr key={member.id} className="align-top">
+                  <td className="px-3 py-3 font-semibold text-slate-900">{member.name}</td>
+                  <td className="px-3 py-3">{member.can_number}</td>
+                  <td className="px-3 py-3">{member.pan_masked || '-'}</td>
+                  <td className="px-3 py-3"><StatusBadge value={member.kyc_status} /></td>
+                  <td className="px-3 py-3"><StatusBadge value={member.mobile_status} /></td>
+                  <td className="px-3 py-3"><StatusBadge value={member.email_status} /></td>
+                  <td className="px-3 py-3"><StatusBadge value={member.nominee_status} /></td>
+                  <td className="px-3 py-3"><StatusBadge value={member.payeezz_status} /></td>
+                  <td className="px-3 py-3">{member.bank_name || '-'}</td>
+                  <td className="px-3 py-3">{formatDate(member.updated_at)}</td>
+                  <td className="px-3 py-3">
+                    <div className="flex gap-2">
+                      {canEditMember(user) && (
+                        <button type="button" onClick={() => onEditMember(family.id, member)} className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                          Edit
+                        </button>
+                      )}
+                      {canDeleteMember(user) && (
+                        <button type="button" onClick={() => deleteMember(member)} className="rounded-md border border-rose-200 px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50">
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {!family.members.length && (
+                <tr><td className="px-3 py-8 text-center text-slate-500" colSpan={11}>No members yet. Add a member to get started.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function KycPage({ user, rmParams, refreshToken, onOpenFamily, onEditMember }: StatusPageProps) {
+  const tabs: Array<{ key: string; label: string; params: Record<string, string> }> = [
+    { key: 'all', label: 'All Clients', params: {} },
+    { key: 'validated', label: 'Validated', params: { kyc_status: 'Validated' } },
+    { key: 'registered', label: 'Re-KYC Pending', params: { kyc_status: 'Registered' } },
+    { key: 'no_kyc', label: 'No KYC', params: { kyc_status: 'No KYC' } },
+  ];
+  return (
+    <MemberStatusPage
+      kind="kyc"
+      tabs={tabs}
+      rmParams={rmParams}
+      refreshToken={refreshToken}
+      onOpenFamily={onOpenFamily}
+      user={user}
+      onEditMember={onEditMember}
+      exportType="kyc_pending"
+      columns={['family', 'can', 'pan', 'kyc', 'rm', 'updated']}
+    />
+  );
+}
+
+function PayeezzPage({ user, rmParams, refreshToken, onOpenFamily, onEditMember }: StatusPageProps) {
+  const tabs: Array<{ key: string; label: string; params: Record<string, string> }> = [
+    { key: 'all', label: 'All Clients', params: {} },
+    { key: 'accepted', label: 'Accepted', params: { payeezz_status: 'Aggregator Accepted' } },
+    { key: 'sent', label: 'Sent for Approval', params: { payeezz_status: 'Sent for Approval' } },
+    { key: 'not_available', label: 'Not Available', params: { payeezz_status: 'Not Available' } },
+  ];
+  return (
+    <MemberStatusPage
+      kind="payeezz"
+      tabs={tabs}
+      rmParams={rmParams}
+      refreshToken={refreshToken}
+      onOpenFamily={onOpenFamily}
+      user={user}
+      onEditMember={onEditMember}
+      exportType="payeezz_pending"
+      columns={['family', 'can', 'bank', 'payeezz', 'amount', 'start', 'rm']}
+    />
+  );
+}
+
+function ContactPage({ user, rmParams, refreshToken, onOpenFamily, onEditMember }: StatusPageProps) {
+  const tabs: Array<{ key: string; label: string; params: Record<string, string> }> = [
+    { key: 'all', label: 'All Clients', params: {} },
+    { key: 'mobile', label: 'Mobile Pending', params: { mobile_status: 'Not Verified' } },
+    { key: 'email', label: 'Email Pending', params: { email_status: 'Not Verified' } },
+    { key: 'nominee', label: 'Nominee Pending', params: { nominee_status: 'Not Verified' } },
+  ];
+  return (
+    <MemberStatusPage
+      kind="contact"
+      tabs={tabs}
+      rmParams={rmParams}
+      refreshToken={refreshToken}
+      onOpenFamily={onOpenFamily}
+      user={user}
+      onEditMember={onEditMember}
+      exportType="contact_pending"
+      columns={['family', 'can', 'mobile', 'email', 'nominee', 'rm', 'updated']}
+    />
+  );
+}
+
+type StatusPageProps = {
+  user: CurrentUser;
+  rmParams: { rm_id?: string };
+  refreshToken: number;
+  onOpenFamily: (familyId: string) => void;
+  onEditMember: (familyId: string, member: Member) => void;
+};
+
+type MemberStatusPageProps = StatusPageProps & {
+  kind: 'kyc' | 'payeezz' | 'contact';
+  tabs: Array<{ key: string; label: string; params: Record<string, string> }>;
+  exportType: ReportType;
+  columns: string[];
+};
+
+function MemberStatusPage({
+  kind,
+  tabs,
+  rmParams,
+  refreshToken,
+  onOpenFamily,
+  user,
+  onEditMember,
+  exportType,
+  columns,
+}: MemberStatusPageProps) {
+  const [active, setActive] = useState(tabs[0].key);
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [total, setTotal] = useState(0);
+  const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const activeTab = tabs.find((tab) => tab.key === active) || tabs[0];
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError('');
+    Promise.all([
+      complianceApi.dashboardSummary(rmParams),
+      complianceApi.members({ ...rmParams, ...activeTab.params, limit: PAGE_LIMIT }),
+    ])
+      .then(([nextSummary, response]) => {
+        if (!cancelled) {
+          setSummary(nextSummary);
+          setMembers(response.items);
+          setTotal(response.total);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) setError(friendlyError(error));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [active, refreshToken, rmParams.rm_id]);
+
+  async function exportReport() {
+    try {
+      await complianceApi.exportReport(exportType, 'csv', rmParams);
+      setMessage(`${reportLabels[exportType]} export started.`);
+    } catch (error) {
+      setMessage(friendlyError(error));
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {summary && <StatusKpis kind={kind} summary={summary} />}
+      <Card>
+        <div className="flex flex-wrap items-center gap-2">
+          <TabButtons tabs={tabs} active={active} onChange={setActive} />
+          <button type="button" onClick={exportReport} className="ml-auto inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            <Download size={16} /> Export
+          </button>
+        </div>
+        {message && <div className="mt-3 rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-700">{message}</div>}
+      </Card>
+      {loading && <LoadingBlock label="Loading member records..." />}
+      {error && <EmptyState title="Member records unavailable" detail={error} />}
+      {!loading && !error && (
+        <Card>
+          <div className="mb-3 text-sm text-slate-500">Showing {members.length} of {total} clients</div>
+          <MembersTable
+            members={members}
+            columns={columns}
+            onOpenFamily={onOpenFamily}
+            canEdit={canEditMember(user)}
+            onEditMember={onEditMember}
+          />
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function TasksPage({
+  user,
+  rmParams,
+  refreshToken,
+  onOpenFamily,
+  onFixMember,
+}: {
+  user: CurrentUser;
+  rmParams: { rm_id?: string };
+  refreshToken: number;
+  onOpenFamily: (familyId: string) => void;
+  onFixMember: (familyId: string, memberId: string) => Promise<void>;
+}) {
+  const tabs: Array<{ key: TaskType | 'all'; label: string }> = [
+    { key: 'all', label: 'All Pending' },
+    { key: 'kyc', label: 'KYC' },
+    { key: 'payeezz', label: 'PayEezz' },
+    { key: 'mobile', label: 'Mobile' },
+    { key: 'email', label: 'Email' },
+    { key: 'nominee', label: 'Nominee' },
+  ];
+  const [active, setActive] = useState<TaskType | 'all'>('all');
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [summary, setSummary] = useState<TaskSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError('');
+    Promise.all([
+      complianceApi.tasksSummary(rmParams),
+      complianceApi.tasks({ ...rmParams, type: active, limit: PAGE_LIMIT }),
+    ])
+      .then(([nextSummary, response]) => {
+        if (!cancelled) {
+          setSummary(nextSummary);
+          setTasks(response.items);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) setError(friendlyError(error));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [active, refreshToken, rmParams.rm_id]);
+
+  return (
+    <div className="space-y-4">
+      {summary && (
+        <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+          <MetricCard label="Total Pending" value={summary.total_tasks} tone="blue" />
+          <MetricCard label="KYC" value={summary.kyc} tone="red" />
+          <MetricCard label="PayEezz" value={summary.payeezz} tone="yellow" />
+          <MetricCard label="Mobile" value={summary.mobile} tone="slate" />
+          <MetricCard label="Email" value={summary.email} tone="slate" />
+          <MetricCard label="Nominee" value={summary.nominee} tone="slate" />
+        </div>
+      )}
+      <Card>
+        <TabButtons tabs={tabs} active={active} onChange={(value) => setActive(value as TaskType | 'all')} />
+      </Card>
+      {loading && <LoadingBlock label="Loading tasks..." />}
+      {error && <EmptyState title="Tasks unavailable" detail={error} />}
+      {!loading && !error && (
+        <Card>
+          <TaskList
+            tasks={tasks}
+            onOpenFamily={onOpenFamily}
+            canFix={canEditMember(user)}
+            onFixMember={onFixMember}
+          />
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function FamilyModal({
+  user,
+  rms,
+  modal,
+  onClose,
+  onSaved,
+}: {
+  user: CurrentUser;
+  rms: UserRecord[];
+  modal: Extract<ModalState, { type: 'family' }>;
+  onClose: () => void;
+  onSaved: (family: Family) => void;
+}) {
+  const editing = modal.mode === 'edit';
+  const family = editing ? modal.family : null;
+  const remarksOnly = editing && isCanRM(user) && !canCreateFamily(user);
+  const [form, setForm] = useState<FamilyPayload>({
+    family_code: family?.family_code || '',
+    family_head_name: family?.family_head_name || '',
+    primary_rm_id: family?.primary_rm.id || rms[0]?.id || '',
+    remarks: family?.remarks || '',
+  });
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  function update<K extends keyof FamilyPayload>(key: K, value: FamilyPayload[K]) {
+    setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setError('');
+    setBusy(true);
+    try {
+      if (editing) {
+        const payload = remarksOnly ? { remarks: form.remarks || null } : { ...form, remarks: form.remarks || null };
+        const saved = await complianceApi.updateFamily(family!.id, payload);
+        onSaved(saved);
+      } else {
+        if (!form.family_code.trim() || !form.family_head_name.trim() || !form.primary_rm_id) {
+          setError('Family code, family head, and RM are required.');
+          return;
+        }
+        const saved = await complianceApi.createFamily({ ...form, remarks: form.remarks || null });
+        onSaved(saved);
+      }
+    } catch (error) {
+      setError(friendlyError(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title={editing ? 'Edit Family' : 'Add Family'} onClose={onClose}>
+      <form onSubmit={submit} className="space-y-4">
+        {error && <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="Family Code">
+            <input value={form.family_code} disabled={remarksOnly} onChange={(event) => update('family_code', event.target.value)} className={inputClass} required />
+          </Field>
+          <Field label="Family Head">
+            <input value={form.family_head_name} disabled={remarksOnly} onChange={(event) => update('family_head_name', event.target.value)} className={inputClass} required />
+          </Field>
+          <Field label="Primary RM">
+            <select value={form.primary_rm_id} disabled={remarksOnly} onChange={(event) => update('primary_rm_id', event.target.value)} className={inputClass} required>
+              <option value="">Select RM</option>
+              {rms.map((rm) => <option key={rm.id} value={rm.id}>{rm.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Remarks">
+            <textarea value={form.remarks || ''} onChange={(event) => update('remarks', event.target.value)} className={`${inputClass} min-h-24`} />
+          </Field>
+        </div>
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className={secondaryButtonClass}>Cancel</button>
+          <button disabled={busy} className={primaryButtonClass}>{busy ? 'Saving...' : 'Save Family'}</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function MemberModal({
+  user,
+  modal,
+  onClose,
+  onSaved,
+}: {
+  user: CurrentUser;
+  modal: Extract<ModalState, { type: 'member' }>;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const member = modal.mode === 'edit' ? modal.member : null;
+  const remarksOnly = modal.mode === 'edit' && isCanRM(user) && !canCreateMember(user);
+  const [clearPan, setClearPan] = useState(false);
+  const [clearAccount, setClearAccount] = useState(false);
+  const [form, setForm] = useState<MemberPayload>({
+    name: member?.name || '',
+    can_number: member?.can_number || '',
+    pan: '',
+    date_of_birth: member?.date_of_birth || null,
+    kyc_status: member?.kyc_status || 'No KYC',
+    mobile: '',
+    mobile_status: member?.mobile_status || 'Not Verified',
+    email: '',
+    email_status: member?.email_status || 'Not Verified',
+    nominee_status: member?.nominee_status || 'Not Verified',
+    bank_name: member?.bank_name || '',
+    bank_account_number: '',
+    ifsc_code: member?.ifsc_code || '',
+    payeezz_status: member?.payeezz_status || 'Not Available',
+    payeezz_amount: member?.payeezz_amount === null || member?.payeezz_amount === undefined ? null : Number(member.payeezz_amount),
+    payeezz_start_date: member?.payeezz_start_date || null,
+    remarks: member?.remarks || '',
+  });
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  function update<K extends keyof MemberPayload>(key: K, value: MemberPayload[K]) {
+    setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function buildPayload(): Partial<MemberPayload> {
+    if (remarksOnly) return { remarks: form.remarks || null };
+    const payload: Partial<MemberPayload> = {
+      name: form.name.trim(),
+      can_number: form.can_number.trim(),
+      date_of_birth: form.date_of_birth || null,
+      kyc_status: form.kyc_status,
+      mobile_status: form.mobile_status,
+      email_status: form.email_status,
+      nominee_status: form.nominee_status,
+      bank_name: form.bank_name?.trim() || null,
+      ifsc_code: form.ifsc_code?.trim() || null,
+      payeezz_status: form.payeezz_status,
+      payeezz_amount: form.payeezz_amount === undefined ? null : form.payeezz_amount,
+      payeezz_start_date: form.payeezz_start_date || null,
+      remarks: form.remarks?.trim() || null,
+    };
+    if (modal.mode === 'create' || form.pan || clearPan) payload.pan = clearPan ? null : form.pan?.trim() || null;
+    if (modal.mode === 'create' || form.mobile) payload.mobile = form.mobile?.trim() || null;
+    if (modal.mode === 'create' || form.email) payload.email = form.email?.trim() || null;
+    if (modal.mode === 'create' || form.bank_account_number || clearAccount) {
+      payload.bank_account_number = clearAccount ? null : form.bank_account_number?.trim() || null;
+    }
+    return payload;
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setError('');
+    if (!remarksOnly && (!form.name.trim() || !form.can_number.trim())) {
+      setError('Name and CAN are required.');
+      return;
+    }
+    setBusy(true);
+    try {
+      if (modal.mode === 'edit') {
+        await complianceApi.updateMember(modal.member.id, buildPayload());
+      } else {
+        await complianceApi.createMember(modal.familyId, buildPayload() as MemberPayload);
+      }
+      onSaved();
+    } catch (error) {
+      setError(friendlyError(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title={modal.mode === 'edit' ? `Edit Member - ${member?.name}` : 'Add Family Member'} onClose={onClose} wide>
+      <form onSubmit={submit} className="space-y-4">
+        {error && <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
+        {remarksOnly && <div className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">RM access can update remarks only.</div>}
+        <div className="grid gap-4 md:grid-cols-3">
+          <Field label="Name">
+            <input value={form.name} disabled={remarksOnly} onChange={(event) => update('name', event.target.value)} className={inputClass} required={!remarksOnly} />
+          </Field>
+          <Field label="CAN Number">
+            <input value={form.can_number} disabled={remarksOnly} onChange={(event) => update('can_number', event.target.value)} className={inputClass} required={!remarksOnly} />
+          </Field>
+          <Field label="PAN">
+            <input value={form.pan || ''} disabled={remarksOnly || clearPan} onChange={(event) => update('pan', event.target.value)} placeholder={member?.pan_masked ? `Stored: ${member.pan_masked}` : 'ABCDE1234F'} className={inputClass} />
+            {modal.mode === 'edit' && member?.pan_masked && !remarksOnly && <Checkbox label="Clear stored PAN" checked={clearPan} onChange={setClearPan} />}
+          </Field>
+          <Field label="Date of Birth">
+            <input type="date" value={form.date_of_birth || ''} disabled={remarksOnly} onChange={(event) => update('date_of_birth', event.target.value || null)} className={inputClass} />
+          </Field>
+          <Field label="KYC Status">
+            <select value={form.kyc_status} disabled={remarksOnly} onChange={(event) => update('kyc_status', event.target.value as KycStatus)} className={inputClass}>
+              {kycStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
+            </select>
+          </Field>
+          <Field label="Mobile">
+            <input value={form.mobile || ''} disabled={remarksOnly} onChange={(event) => update('mobile', event.target.value)} placeholder={member?.mobile_masked ? `Stored: ${member.mobile_masked}` : 'Mobile number'} className={inputClass} />
+          </Field>
+          <Field label="Mobile Status">
+            <select value={form.mobile_status} disabled={remarksOnly} onChange={(event) => update('mobile_status', event.target.value as VerificationStatus)} className={inputClass}>
+              {verificationStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
+            </select>
+          </Field>
+          <Field label="Email">
+            <input value={form.email || ''} disabled={remarksOnly} onChange={(event) => update('email', event.target.value)} placeholder={member?.email_masked ? `Stored: ${member.email_masked}` : 'client@example.com'} className={inputClass} />
+          </Field>
+          <Field label="Email Status">
+            <select value={form.email_status} disabled={remarksOnly} onChange={(event) => update('email_status', event.target.value as VerificationStatus)} className={inputClass}>
+              {verificationStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
+            </select>
+          </Field>
+          <Field label="Nominee Status">
+            <select value={form.nominee_status} disabled={remarksOnly} onChange={(event) => update('nominee_status', event.target.value as VerificationStatus)} className={inputClass}>
+              {verificationStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
+            </select>
+          </Field>
+          <Field label="Bank Name">
+            <input value={form.bank_name || ''} disabled={remarksOnly} onChange={(event) => update('bank_name', event.target.value)} className={inputClass} />
+          </Field>
+          <Field label="Bank Account">
+            <input value={form.bank_account_number || ''} disabled={remarksOnly || clearAccount} onChange={(event) => update('bank_account_number', event.target.value)} placeholder={member?.bank_account_number_masked ? `Stored: ${member.bank_account_number_masked}` : 'Bank account number'} className={inputClass} />
+            {modal.mode === 'edit' && member?.bank_account_number_masked && !remarksOnly && <Checkbox label="Clear stored account" checked={clearAccount} onChange={setClearAccount} />}
+          </Field>
+          <Field label="IFSC">
+            <input value={form.ifsc_code || ''} disabled={remarksOnly} onChange={(event) => update('ifsc_code', event.target.value)} className={inputClass} />
+          </Field>
+          <Field label="PayEezz Status">
+            <select value={form.payeezz_status} disabled={remarksOnly} onChange={(event) => update('payeezz_status', event.target.value as PayeezzStatus)} className={inputClass}>
+              {payeezzStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
+            </select>
+          </Field>
+          <Field label="PayEezz Amount">
+            <input type="number" min="0" value={form.payeezz_amount ?? ''} disabled={remarksOnly} onChange={(event) => update('payeezz_amount', event.target.value === '' ? null : Number(event.target.value))} className={inputClass} />
+          </Field>
+          <Field label="PayEezz Start Date">
+            <input type="date" value={form.payeezz_start_date || ''} disabled={remarksOnly} onChange={(event) => update('payeezz_start_date', event.target.value || null)} className={inputClass} />
+          </Field>
+          <Field label="Remarks">
+            <textarea value={form.remarks || ''} onChange={(event) => update('remarks', event.target.value)} className={`${inputClass} min-h-24`} />
+          </Field>
+        </div>
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className={secondaryButtonClass}>Cancel</button>
+          <button disabled={busy} className={primaryButtonClass}>{busy ? 'Saving...' : 'Save Member'}</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function CanSearch({ onOpenFamily }: { onOpenFamily: (familyId: string) => void }) {
+  const [query, setQuery] = useState('');
+  const [families, setFamilies] = useState<Family[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const term = query.trim();
+    if (!term) {
+      setFamilies([]);
+      setMembers([]);
+      setMessage('');
+      return;
+    }
+    setLoading(true);
+    setMessage('');
+    try {
+      const [familyResults, memberResults] = await Promise.all([
+        complianceApi.families({ q: term, limit: 5 }),
+        complianceApi.members({ q: term, limit: 5 }),
+      ]);
+      setFamilies(familyResults.items);
+      setMembers(memberResults.items);
+      if (familyResults.total === 1 && memberResults.total === 0) onOpenFamily(familyResults.items[0].id);
+      if (memberResults.total === 1) onOpenFamily(memberResults.items[0].family_id);
+      if (!familyResults.total && !memberResults.total) setMessage('No matching family or member found.');
+    } catch (error) {
+      setMessage(friendlyError(error));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card className="mb-4">
+      <form onSubmit={submit} className="flex flex-wrap items-center gap-2">
+        <Search size={17} className="text-slate-400" />
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search families, members, CAN, PAN, mobile, or email"
+          className="min-w-72 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        <button className={secondaryButtonClass}>{loading ? 'Searching...' : 'Search'}</button>
+      </form>
+      {(message || families.length > 1 || members.length > 1) && (
+        <div className="mt-3 rounded-md bg-slate-50 p-3 text-sm">
+          {message && <div className="text-slate-600">{message}</div>}
+          <div className="grid gap-2 md:grid-cols-2">
+            {families.length > 1 && (
+              <SearchResults title="Families" items={families.map((family) => ({
+                id: family.id,
+                title: family.family_head_name,
+                detail: `${family.family_code} | ${family.primary_rm.name}`,
+                familyId: family.id,
+              }))} onOpenFamily={onOpenFamily} />
+            )}
+            {members.length > 1 && (
+              <SearchResults title="Members" items={members.map((member) => ({
+                id: member.id,
+                title: member.name,
+                detail: `${member.family_head_name} | ${member.can_number}`,
+                familyId: member.family_id,
+              }))} onOpenFamily={onOpenFamily} />
+            )}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function SearchResults({
+  title,
+  items,
+  onOpenFamily,
+}: {
+  title: string;
+  items: Array<{ id: string; title: string; detail: string; familyId: string }>;
+  onOpenFamily: (familyId: string) => void;
+}) {
+  return (
+    <div>
+      <div className="mb-1 text-xs font-semibold uppercase text-slate-500">{title}</div>
+      <div className="space-y-1">
+        {items.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => onOpenFamily(item.familyId)}
+            className="block w-full rounded-md bg-white px-3 py-2 text-left hover:bg-blue-50"
+          >
+            <div className="font-semibold text-slate-900">{item.title}</div>
+            <div className="text-xs text-slate-500">{item.detail}</div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FamilyCard({
+  family,
+  rmName,
+  canEdit,
+  canAddMember,
+  onOpen,
+  onEdit,
+  onAddMember,
+}: {
+  family: Family;
+  rmName: string;
+  canEdit: boolean;
+  canAddMember: boolean;
+  onOpen: () => void;
+  onEdit: () => void;
+  onAddMember: () => void;
+}) {
+  return (
+    <Card>
+      <div className="flex items-start justify-between gap-3">
+        <button type="button" onClick={onOpen} className="text-left">
+          <div className="font-semibold text-slate-950 hover:text-blue-700">{family.family_head_name}</div>
+          <div className="mt-1 text-sm text-slate-500">{family.family_code} | RM: {rmName}</div>
+        </button>
+        {canEdit && (
+          <button type="button" onClick={onEdit} className="rounded-md border border-slate-300 p-2 text-slate-600 hover:bg-slate-50" aria-label="Edit family">
+            <Pencil size={15} />
+          </button>
+        )}
+      </div>
+      <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+        <MiniStat label="Members" value={family.total_members} />
+        <MiniStat label="CANs" value={family.total_cans} />
+        <MiniStat label="Updated" value={formatDate(family.last_updated_at)} small />
+      </div>
+      <div className="mt-4 space-y-2">
+        <ProgressRow label="KYC" value={family.kyc_completion_pct} tone={family.kyc_completion_pct === 100 ? 'green' : 'red'} compact />
+        <ProgressRow label="PayEezz" value={family.payeezz_completion_pct} tone={family.payeezz_completion_pct === 100 ? 'green' : 'red'} compact />
+        <ProgressRow label="Contact" value={Math.round((family.mobile_verification_pct + family.email_verification_pct + family.nominee_verification_pct) / 3)} tone="blue" compact />
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button type="button" onClick={onOpen} className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+          Open Family
+        </button>
+        {canAddMember && (
+          <button type="button" onClick={onAddMember} className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700">
+            <Plus size={14} /> Add Member
+          </button>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function MembersTable({
+  members,
+  columns,
+  onOpenFamily,
+  canEdit = false,
+  onEditMember,
+}: {
+  members: Member[];
+  columns: string[];
+  onOpenFamily: (familyId: string) => void;
+  canEdit?: boolean;
+  onEditMember?: (familyId: string, member: Member) => void;
+}) {
+  if (!members.length) return <EmptyState title="No clients found" detail="No records match the selected status." />;
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-left text-sm">
+        <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+          <tr>
+            <th className="px-3 py-2">Name</th>
+            {columns.includes('family') && <th className="px-3 py-2">Family</th>}
+            {columns.includes('can') && <th className="px-3 py-2">CAN</th>}
+            {columns.includes('pan') && <th className="px-3 py-2">PAN</th>}
+            {columns.includes('bank') && <th className="px-3 py-2">Bank</th>}
+            {columns.includes('kyc') && <th className="px-3 py-2">KYC</th>}
+            {columns.includes('payeezz') && <th className="px-3 py-2">PayEezz</th>}
+            {columns.includes('amount') && <th className="px-3 py-2">Amount</th>}
+            {columns.includes('start') && <th className="px-3 py-2">Start Date</th>}
+            {columns.includes('mobile') && <th className="px-3 py-2">Mobile</th>}
+            {columns.includes('email') && <th className="px-3 py-2">Email</th>}
+            {columns.includes('nominee') && <th className="px-3 py-2">Nominee</th>}
+            {columns.includes('rm') && <th className="px-3 py-2">RM</th>}
+            {columns.includes('updated') && <th className="px-3 py-2">Updated</th>}
+            <th className="px-3 py-2">Action</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {members.map((member) => (
+            <tr key={member.id}>
+              <td className="px-3 py-3 font-semibold text-slate-900">{member.name}</td>
+              {columns.includes('family') && <td className="px-3 py-3">{member.family_head_name}</td>}
+              {columns.includes('can') && <td className="px-3 py-3">{member.can_number}</td>}
+              {columns.includes('pan') && <td className="px-3 py-3">{member.pan_masked || '-'}</td>}
+              {columns.includes('bank') && <td className="px-3 py-3">{member.bank_name || '-'}</td>}
+              {columns.includes('kyc') && <td className="px-3 py-3"><StatusBadge value={member.kyc_status} /></td>}
+              {columns.includes('payeezz') && <td className="px-3 py-3"><StatusBadge value={member.payeezz_status} /></td>}
+              {columns.includes('amount') && <td className="px-3 py-3">{member.payeezz_amount ? formatINR(Number(member.payeezz_amount)) : '-'}</td>}
+              {columns.includes('start') && <td className="px-3 py-3">{formatDate(member.payeezz_start_date)}</td>}
+              {columns.includes('mobile') && <td className="px-3 py-3"><StatusBadge value={member.mobile_status} /></td>}
+              {columns.includes('email') && <td className="px-3 py-3"><StatusBadge value={member.email_status} /></td>}
+              {columns.includes('nominee') && <td className="px-3 py-3"><StatusBadge value={member.nominee_status} /></td>}
+              {columns.includes('rm') && <td className="px-3 py-3">{member.primary_rm.name}</td>}
+              {columns.includes('updated') && <td className="px-3 py-3">{formatDate(member.updated_at)}</td>}
+              <td className="px-3 py-3">
+                <div className="flex flex-wrap gap-2">
+                  {canEdit && onEditMember && (
+                    <button type="button" onClick={() => onEditMember(member.family_id, member)} className="rounded-md border border-blue-200 px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50">
+                      Update
+                    </button>
+                  )}
+                  <button type="button" onClick={() => onOpenFamily(member.family_id)} className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                    Open Family
+                  </button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function StatusKpis({ kind, summary }: { kind: 'kyc' | 'payeezz' | 'contact'; summary: DashboardSummary }) {
+  if (kind === 'kyc') {
+    return (
+      <div className="grid gap-4 md:grid-cols-3">
+        <MetricCard label="KYC Validated" value={summary.kyc_validated} tone="green" detail={`${percent(summary.kyc_validated, summary.total_clients)}%`} />
+        <MetricCard label="Re-KYC Pending" value={summary.kyc_registered} tone="yellow" detail={`${percent(summary.kyc_registered, summary.total_clients)}%`} />
+        <MetricCard label="No KYC" value={summary.kyc_no_kyc} tone="red" detail={`${percent(summary.kyc_no_kyc, summary.total_clients)}%`} />
+      </div>
+    );
+  }
+  if (kind === 'payeezz') {
+    return (
+      <div className="grid gap-4 md:grid-cols-3">
+        <MetricCard label="Aggregator Accepted" value={summary.payeezz_accepted} tone="green" detail={`${summary.payeezz_accepted_pct}%`} />
+        <MetricCard label="Sent for Approval" value={summary.payeezz_sent_for_approval} tone="yellow" detail={`${percent(summary.payeezz_sent_for_approval, summary.total_clients)}%`} />
+        <MetricCard label="Not Available" value={summary.payeezz_not_available} tone="red" detail={`${percent(summary.payeezz_not_available, summary.total_clients)}%`} />
+      </div>
+    );
+  }
+  return (
+    <div className="grid gap-4 md:grid-cols-3">
+      <MetricCard label="Mobile Pending" value={summary.mobile_not_verified} tone="red" detail={`${percent(summary.mobile_not_verified, summary.total_clients)}%`} />
+      <MetricCard label="Email Pending" value={summary.email_not_verified} tone="red" detail={`${percent(summary.email_not_verified, summary.total_clients)}%`} />
+      <MetricCard label="Nominee Pending" value={summary.nominee_not_verified} tone="red" detail={`${percent(summary.nominee_not_verified, summary.total_clients)}%`} />
+    </div>
+  );
+}
+
+function TaskList({
+  tasks,
+  onOpenFamily,
+  canFix = false,
+  onFixMember,
+}: {
+  tasks: TaskItem[];
+  onOpenFamily: (familyId: string) => void;
+  canFix?: boolean;
+  onFixMember?: (familyId: string, memberId: string) => Promise<void>;
+}) {
+  const [fixingId, setFixingId] = useState('');
+  const [error, setError] = useState('');
+
+  async function fixTask(task: TaskItem) {
+    if (!onFixMember) return;
+    setError('');
+    setFixingId(task.member_id);
+    try {
+      await onFixMember(task.family_id, task.member_id);
+    } catch (error) {
+      setError(friendlyError(error));
+    } finally {
+      setFixingId('');
+    }
+  }
+
+  if (!tasks.length) return <EmptyState title="All clear" detail="No pending tasks in this category." />;
+  return (
+    <div className="space-y-2">
+      {error && <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
+      {tasks.map((task) => (
+        <div
+          key={`${task.type}-${task.member_id}-${task.label}`}
+          className="flex w-full items-start justify-between gap-3 rounded-md border border-slate-200 bg-white px-3 py-3 text-left hover:bg-slate-50"
+        >
+          <button type="button" onClick={() => onOpenFamily(task.family_id)} className="min-w-0 flex-1 text-left">
+            <div className="font-semibold text-slate-900">{task.member_name}</div>
+            <div className="mt-1 text-sm text-slate-500">{task.description}</div>
+            <div className="mt-1 text-xs text-slate-400">{task.family_head_name} | {task.can_number_masked} | {task.rm_name}</div>
+          </button>
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            <StatusBadge value={task.type.toUpperCase()} />
+            <Badge tone={task.priority === 'high' ? 'red' : task.priority === 'medium' ? 'yellow' : 'slate'}>{task.priority}</Badge>
+            {canFix && onFixMember && (
+              <button
+                type="button"
+                onClick={() => fixTask(task)}
+                disabled={fixingId === task.member_id}
+                className="mt-1 rounded-md border border-blue-200 px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {fixingId === task.member_id ? 'Loading...' : 'Fix'}
+              </button>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  tone,
+  detail,
+}: {
+  label: string;
+  value: ReactNode;
+  tone: 'green' | 'yellow' | 'red' | 'blue' | 'slate';
+  detail?: string;
+}) {
+  const toneClasses = {
+    green: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    yellow: 'border-amber-200 bg-amber-50 text-amber-700',
+    red: 'border-rose-200 bg-rose-50 text-rose-700',
+    blue: 'border-blue-200 bg-blue-50 text-blue-700',
+    slate: 'border-slate-200 bg-white text-slate-900',
+  };
+  return (
+    <div className={`rounded-lg border p-4 shadow-sm ${toneClasses[tone]}`}>
+      <div className="text-xs font-semibold uppercase opacity-75">{label}</div>
+      <div className="mt-2 text-3xl font-bold">{value}</div>
+      {detail && <div className="mt-1 text-sm opacity-80">{detail}</div>}
+    </div>
+  );
+}
+
+function MiniStat({ label, value, small = false }: { label: string; value: ReactNode; small?: boolean }) {
+  return (
+    <div className="rounded-md bg-slate-50 px-3 py-2">
+      <div className={`${small ? 'text-sm' : 'text-lg'} font-bold text-slate-900`}>{value}</div>
+      <div className="text-xs text-slate-500">{label}</div>
+    </div>
+  );
+}
+
+function ProgressRow({ label, value, tone, compact = false }: { label: string; value: number; tone: 'green' | 'yellow' | 'red' | 'blue'; compact?: boolean }) {
+  const colors = {
+    green: 'bg-emerald-500',
+    yellow: 'bg-amber-500',
+    red: 'bg-rose-500',
+    blue: 'bg-blue-500',
+  };
+  return (
+    <div>
+      <div className={`mb-1 flex justify-between ${compact ? 'text-xs' : 'text-sm'}`}>
+        <span className="font-medium text-slate-700">{label}</span>
+        <span className="text-slate-500">{value}%</span>
+      </div>
+      <div className="h-2 rounded-full bg-slate-100">
+        <div className={`h-2 rounded-full ${colors[tone]}`} style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function StatusBadge({ value }: { value: string }) {
+  const tone = value === 'Validated' || value === 'Verified' || value === 'Aggregator Accepted'
+    ? 'green'
+    : value === 'Registered' || value === 'Sent for Approval'
+      ? 'yellow'
+      : value === 'No KYC' || value === 'Not Verified' || value === 'Not Available'
+        ? 'red'
+        : 'slate';
+  return <Badge tone={tone}>{value}</Badge>;
+}
+
+function TabButtons<T extends string>({
+  tabs,
+  active,
+  onChange,
+}: {
+  tabs: Array<{ key: T; label: string }>;
+  active: T;
+  onChange: (key: T) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {tabs.map((tab) => (
+        <button
+          key={tab.key}
+          type="button"
+          onClick={() => onChange(tab.key)}
+          className={`rounded-full px-3 py-1.5 text-sm font-semibold ${active === tab.key ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Modal({ title, children, onClose, wide = false }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6">
+      <div className={`max-h-full w-full ${wide ? 'max-w-5xl' : 'max-w-2xl'} overflow-hidden rounded-lg bg-white shadow-xl`}>
+        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-950 px-5 py-4 text-white">
+          <div className="font-semibold">{title}</div>
+          <button type="button" onClick={onClose} className="rounded-md px-2 py-1 text-sm text-slate-300 hover:bg-white/10 hover:text-white">Close</button>
+        </div>
+        <div className="max-h-[78vh] overflow-y-auto p-5">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="block text-sm font-medium text-slate-700">
+      {label}
+      <div className="mt-1">{children}</div>
+    </label>
+  );
+}
+
+function Checkbox({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <label className="mt-2 flex items-center gap-2 text-xs font-normal text-slate-600">
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      {label}
+    </label>
+  );
+}
+
+function LoadingBlock({ label }: { label: string }) {
+  return <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">{label}</div>;
+}
+
+function formatDate(value: string | null | undefined) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function percent(value: number, total: number) {
+  if (!total) return 0;
+  return Math.round((value / total) * 100);
+}
+
+function friendlyError(error: unknown) {
+  if (error && typeof error === 'object' && 'status' in error) {
+    const status = (error as { status?: number }).status;
+    if (status === 401) return 'Please sign in to continue.';
+    if (status === 403) return 'Your role is not allowed to perform this action.';
+  }
+  return error instanceof Error ? error.message : 'Something went wrong. Please try again.';
+}
+
+const inputClass = 'w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-500';
+const secondaryButtonClass = 'inline-flex items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50';
+const primaryButtonClass = 'inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50';

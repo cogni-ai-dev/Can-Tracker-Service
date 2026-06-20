@@ -4,16 +4,22 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_app_settings, get_db, require_roles
+from app.api.deps import get_app_settings, get_db, require_module_roles
 from app.core.config import Settings
-from app.domain.enums import UserRole
+from app.domain.enums import ModuleCode, ModuleRole
 from app.models.user import User
 from app.schemas.dashboard import DashboardSummaryRead, FamilyDashboardSummaryRead
 from app.services.dashboard import get_dashboard_summary, get_family_dashboard_summary
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
-require_dashboard_read = require_roles(UserRole.ADMIN, UserRole.OPS, UserRole.RM, UserRole.MANAGEMENT)
+require_dashboard_read = require_module_roles(
+    ModuleCode.CAN_COMPLIANCE,
+    ModuleRole.CAN_ADMIN,
+    ModuleRole.CAN_OPS,
+    ModuleRole.CAN_RM,
+    ModuleRole.CAN_MANAGEMENT,
+)
 
 
 @router.get("/summary", response_model=DashboardSummaryRead)

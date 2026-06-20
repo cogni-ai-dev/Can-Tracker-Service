@@ -8,9 +8,10 @@ from sqlalchemy.orm import Session
 from app.api.deps import user_can_update_family, user_can_view_family
 from app.core.config import Settings
 from app.core.security import hash_password
-from app.domain.enums import UserRole
+from app.domain.access import ensure_modules_seeded
+from app.domain.enums import ModuleCode, ModuleRole, UserRole
 from app.main import create_app
-from app.models.user import User, UserSession
+from app.models.user import User, UserModuleMembership, UserSession
 
 PASSWORD = "password123"
 
@@ -35,6 +36,28 @@ def create_test_user(
     db_session.commit()
     db_session.refresh(user)
     return user
+
+
+def add_membership(
+    db_session: Session,
+    user: User,
+    *,
+    module_code: ModuleCode,
+    role: ModuleRole,
+    is_active: bool = True,
+) -> UserModuleMembership:
+    ensure_modules_seeded(db_session)
+    membership = UserModuleMembership(
+        user_id=user.id,
+        module_code=module_code,
+        role=role,
+        is_active=is_active,
+    )
+    db_session.add(membership)
+    db_session.commit()
+    db_session.refresh(user)
+    db_session.refresh(membership)
+    return membership
 
 
 def client_for(settings: Settings) -> httpx.AsyncClient:
@@ -63,6 +86,8 @@ async def test_login_succeeds_for_active_user_and_me_returns_safe_user(
         body = response.json()
         assert body["user"]["email"] == "admin@example.test"
         assert body["user"]["role"] == "admin"
+        assert body["user"]["is_platform_admin"] is True
+        assert set(body["user"]["module_codes"]) == {"can_compliance", "client_crm"}
         assert "password_hash" not in body["user"]
         assert "httponly" in response.headers["set-cookie"].lower()
         assert "samesite=lax" in response.headers["set-cookie"].lower()
@@ -71,6 +96,7 @@ async def test_login_succeeds_for_active_user_and_me_returns_safe_user(
 
     assert me_response.status_code == 200
     assert me_response.json()["email"] == "admin@example.test"
+    assert {membership["role"] for membership in me_response.json()["memberships"]} >= {"can_admin", "crm_admin"}
     assert "password_hash" not in me_response.json()
 
 
@@ -486,6 +512,193 @@ async def test_rm_cannot_access_rm_listing(
         response = await client.get("/api/v1/rms")
 
     assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_crm_only_user_has_one_login_but_cannot_access_can_api(
+    test_settings: Settings,
+    db_engine,
+    db_session: Session,
+) -> None:
+    user = create_test_user(db_session, email="crm.viewer@example.test", role=UserRole.MANAGEMENT)
+    add_membership(
+        db_session,
+        user,
+        module_code=ModuleCode.CLIENT_CRM,
+        role=ModuleRole.CRM_VIEWER,
+    )
+
+    async with client_for(test_settings) as client:
+        assert (await login(client, user.email)).status_code == 200
+        me_response = await client.get("/api/v1/auth/me")
+        dashboard_response = await client.get("/api/v1/dashboard/summary")
+        users_response = await client.get("/api/v1/users")
+
+    assert me_response.status_code == 200
+    assert me_response.json()["module_codes"] == ["client_crm"]
+    assert dashboard_response.status_code == 403
+    assert users_response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_crm_admin_lists_and_creates_only_crm_users(
+    test_settings: Settings,
+    db_engine,
+    db_session: Session,
+) -> None:
+    crm_admin = create_test_user(db_session, email="crm.admin@example.test", role=UserRole.MANAGEMENT)
+    crm_viewer = create_test_user(db_session, email="crm.viewer@example.test", role=UserRole.MANAGEMENT)
+    can_ops = create_test_user(db_session, email="can.ops@example.test", role=UserRole.MANAGEMENT)
+    add_membership(
+        db_session,
+        crm_admin,
+        module_code=ModuleCode.CLIENT_CRM,
+        role=ModuleRole.CRM_ADMIN,
+    )
+    add_membership(
+        db_session,
+        crm_viewer,
+        module_code=ModuleCode.CLIENT_CRM,
+        role=ModuleRole.CRM_VIEWER,
+    )
+    add_membership(db_session, can_ops, module_code=ModuleCode.CAN_COMPLIANCE, role=ModuleRole.CAN_OPS)
+
+    async with client_for(test_settings) as client:
+        assert (await login(client, crm_admin.email)).status_code == 200
+        list_response = await client.get("/api/v1/users")
+        create_response = await client.post(
+            "/api/v1/users",
+            json={
+                "name": "New CRM User",
+                "email": "new.crm@example.test",
+                "password": PASSWORD,
+                "role": "management",
+                "memberships": [
+                    {
+                        "module_code": "client_crm",
+                        "role": "crm_ops",
+                        "is_active": True,
+                    }
+                ],
+            },
+        )
+        blocked_create_response = await client.post(
+            "/api/v1/users",
+            json={
+                "name": "Blocked CAN User",
+                "email": "blocked.can@example.test",
+                "password": PASSWORD,
+                "role": "management",
+                "memberships": [
+                    {
+                        "module_code": "can_compliance",
+                        "role": "can_ops",
+                        "is_active": True,
+                    }
+                ],
+            },
+        )
+
+    assert list_response.status_code == 200
+    assert {user["email"] for user in list_response.json()} == {
+        "crm.admin@example.test",
+        "crm.viewer@example.test",
+    }
+    assert create_response.status_code == 201
+    assert create_response.json()["module_codes"] == ["client_crm"]
+    assert blocked_create_response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_crm_admin_updates_memberships_but_cannot_edit_global_fields_or_self_demote(
+    test_settings: Settings,
+    db_engine,
+    db_session: Session,
+) -> None:
+    crm_admin = create_test_user(db_session, email="crm.admin@example.test", role=UserRole.MANAGEMENT)
+    crm_viewer = create_test_user(db_session, email="crm.viewer@example.test", role=UserRole.MANAGEMENT)
+    add_membership(
+        db_session,
+        crm_admin,
+        module_code=ModuleCode.CLIENT_CRM,
+        role=ModuleRole.CRM_ADMIN,
+    )
+    add_membership(
+        db_session,
+        crm_viewer,
+        module_code=ModuleCode.CLIENT_CRM,
+        role=ModuleRole.CRM_VIEWER,
+    )
+
+    async with client_for(test_settings) as client:
+        assert (await login(client, crm_admin.email)).status_code == 200
+        membership_update_response = await client.patch(
+            f"/api/v1/users/{crm_viewer.id}",
+            json={
+                "memberships": [
+                    {
+                        "module_code": "client_crm",
+                        "role": "crm_relationship_manager",
+                        "is_active": True,
+                    }
+                ]
+            },
+        )
+        global_update_response = await client.patch(
+            f"/api/v1/users/{crm_viewer.id}",
+            json={"name": "Blocked Rename"},
+        )
+        self_demote_response = await client.patch(
+            f"/api/v1/users/{crm_admin.id}",
+            json={
+                "memberships": [
+                    {
+                        "module_code": "client_crm",
+                        "role": "crm_viewer",
+                        "is_active": True,
+                    }
+                ]
+            },
+        )
+        me_response = await client.get("/api/v1/auth/me")
+
+    assert membership_update_response.status_code == 200
+    assert membership_update_response.json()["memberships"] == [
+        {"module_code": "client_crm", "role": "crm_relationship_manager", "is_active": True}
+    ]
+    assert global_update_response.status_code == 403
+    assert self_demote_response.status_code == 400
+    assert self_demote_response.json()["error"]["code"] == "self_module_admin_change_not_allowed"
+    assert {membership["role"] for membership in me_response.json()["memberships"]} == {"crm_admin"}
+
+
+@pytest.mark.asyncio
+async def test_platform_admin_legacy_role_update_preserves_crm_membership(
+    test_settings: Settings,
+    db_engine,
+    db_session: Session,
+) -> None:
+    create_test_user(db_session, email="admin@example.test", role=UserRole.ADMIN)
+    crm_user = create_test_user(db_session, email="crm.viewer@example.test", role=UserRole.MANAGEMENT)
+    add_membership(
+        db_session,
+        crm_user,
+        module_code=ModuleCode.CLIENT_CRM,
+        role=ModuleRole.CRM_VIEWER,
+    )
+
+    async with client_for(test_settings) as client:
+        assert (await login(client, "admin@example.test")).status_code == 200
+        response = await client.patch(f"/api/v1/users/{crm_user.id}", json={"role": "ops"})
+
+    assert response.status_code == 200
+    assert {
+        (membership["module_code"], membership["role"])
+        for membership in response.json()["memberships"]
+    } == {
+        ("can_compliance", "can_ops"),
+        ("client_crm", "crm_viewer"),
+    }
 
 
 @pytest.mark.asyncio

@@ -7,13 +7,14 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import Settings
 from app.core.pii import email_search_hash, mobile_search_hash, pan_search_hash
-from app.domain.enums import KycStatus, PayeezzStatus, UserRole, VerificationStatus
+from app.domain.access import user_is_can_rm
+from app.domain.enums import KycStatus, PayeezzStatus, VerificationStatus
 from app.models.family import Family, Member
 from app.models.user import User
 
 
 def family_visibility_filter(user: User):
-    if user.role == UserRole.RM:
+    if user_is_can_rm(user):
         return Family.primary_rm_id == user.id
     return True
 

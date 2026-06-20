@@ -4,15 +4,21 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, require_roles
-from app.domain.enums import UserRole
+from app.api.deps import get_db, require_module_roles
+from app.domain.enums import ModuleCode, ModuleRole
 from app.models.user import User
 from app.schemas.reports import ReportListFilters, ReportPreviewResponse
 from app.services.reports import export_report, parse_report_export_format, preview_report
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
-require_report_read = require_roles(UserRole.ADMIN, UserRole.OPS, UserRole.RM, UserRole.MANAGEMENT)
+require_report_read = require_module_roles(
+    ModuleCode.CAN_COMPLIANCE,
+    ModuleRole.CAN_ADMIN,
+    ModuleRole.CAN_OPS,
+    ModuleRole.CAN_RM,
+    ModuleRole.CAN_MANAGEMENT,
+)
 
 
 def report_list_filters(

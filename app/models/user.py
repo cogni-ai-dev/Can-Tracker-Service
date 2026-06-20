@@ -7,7 +7,7 @@ from uuid import UUID
 from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.domain.enums import UserRole
+from app.domain.enums import ModuleCode, ModuleRole, UserRole
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
@@ -38,6 +38,60 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         cascade="all, delete-orphan",
     )
     audit_logs: Mapped[list[AuditLog]] = relationship(back_populates="actor")
+    module_memberships: Mapped[list[UserModuleMembership]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
+
+class Module(TimestampMixin, Base):
+    __tablename__ = "modules"
+    __table_args__ = (
+        CheckConstraint(
+            "code in ('can_compliance', 'client_crm')",
+            name="modules_code_valid",
+        ),
+    )
+
+    code: Mapped[ModuleCode] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
+
+    memberships: Mapped[list[UserModuleMembership]] = relationship(back_populates="module")
+
+
+class UserModuleMembership(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "user_module_memberships"
+    __table_args__ = (
+        CheckConstraint(
+            "module_code in ('can_compliance', 'client_crm')",
+            name="user_module_memberships_module_code_valid",
+        ),
+        CheckConstraint(
+            (
+                "role in ('can_admin', 'can_ops', 'can_rm', 'can_management', "
+                "'crm_admin', 'crm_ops', 'crm_relationship_manager', 'crm_viewer')"
+            ),
+            name="user_module_memberships_role_valid",
+        ),
+        UniqueConstraint("user_id", "module_code", name="uq_user_module_memberships_user_module"),
+        Index("ix_user_module_memberships_user_id", "user_id"),
+        Index("ix_user_module_memberships_module_code", "module_code"),
+        Index("ix_user_module_memberships_role", "role"),
+        Index("ix_user_module_memberships_is_active", "is_active"),
+    )
+
+    user_id: Mapped[UUID] = mapped_column(GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    module_code: Mapped[ModuleCode] = mapped_column(
+        String(64),
+        ForeignKey("modules.code", ondelete="CASCADE"),
+        nullable=False,
+    )
+    role: Mapped[ModuleRole] = mapped_column(String(64), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
+
+    user: Mapped[User] = relationship(back_populates="module_memberships")
+    module: Mapped[Module] = relationship(back_populates="memberships")
 
 
 class UserSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):

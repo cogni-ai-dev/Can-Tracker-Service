@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aayushman Money Mall — Client CRM Dashboard</title>
+<style>
+  :root {
+    --bg: #FAF8F3;
+    --surface: #FFFFFF;
+    --ink: #1F2421;
+    --ink-soft: #5C6660;
+    --ink-faint: #9AA39C;
+    --line: #E2DFD5;
+    --line-strong: #CFCABA;
+    --brand: #1D9E75;
+    --brand-dark: #0F6E56;
+    --brand-tint: #E1F5EE;
+    --gold: #BA7517;
+    --gold-tint: #FAEEDA;
+    --red: #A32D2D;
+    --red-tint: #FCEBEB;
+    --blue: #185FA5;
+    --blue-tint: #E6F1FB;
+    --radius: 10px;
+    --radius-lg: 14px;
+    --serif: 'Source Serif Pro', Georgia, serif;
+    --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+  .app { max-width: 1320px; margin: 0 auto; padding: 28px 32px 80px; }
+
+  .masthead {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    border-bottom: 2px solid var(--ink);
+    padding-bottom: 18px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .masthead-left .firm { font-family: var(--serif); font-size: 28px; font-weight: 600; margin: 0; }
+  .masthead-left .sub {
+    font-size: 12.5px; color: var(--ink-soft); margin: 4px 0 0;
+    letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  .masthead-right { display: flex; gap: 28px; align-items: flex-end; }
+  .mh-stat { text-align: right; }
+  .mh-stat .num { font-family: var(--serif); font-size: 22px; font-weight: 600; line-height: 1; }
+  .mh-stat .lbl { font-size: 11px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 3px; }
+
+  /* Widgets */
+  .widget-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .widget {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--ink-faint);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.1s;
+  }
+  .widget:hover { border-color: var(--line-strong); transform: translateY(-1px); }
+  .widget.active { border-color: var(--ink); background: var(--bg); }
+  .widget.gold { border-left-color: var(--gold); }
+  .widget.green { border-left-color: var(--brand); }
+  .widget.red { border-left-color: var(--red); }
+  .widget.blue { border-left-color: var(--blue); }
+  .widget .w-num { font-family: var(--serif); font-size: 26px; font-weight: 600; }
+  .widget.gold .w-num { color: var(--gold); }
+  .widget.green .w-num { color: var(--brand-dark); }
+  .widget.red .w-num { color: var(--red); }
+  .widget.blue .w-num { color: var(--blue); }
+  .widget .w-lbl { font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
+
+  /* Summary cards */
+  .summary-row {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .summary-group {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    padding: 14px 18px;
+  }
+  .summary-group .sg-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--ink-faint);
+    margin-bottom: 10px;
+  }
+  .summary-group .sg-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+  .sg-stat .sg-num {
+    font-family: var(--serif);
+    font-size: 20px;
+    font-weight: 600;
+  }
+  .sg-stat .sg-num.positive { color: var(--brand-dark); }
+  .sg-stat .sg-num.negative { color: var(--red); }
+  .sg-stat .sg-lbl { font-size: 11.5px; color: var(--ink-soft); margin-top: 2px; }
+
+  /* View tabs */
+  .view-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--line);
+    flex-wrap: wrap;
+  }
+  .view-tab {
+    padding: 9px 16px;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--ink-soft);
+    cursor: pointer;
+    border: none;
+    background: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    font-family: var(--sans);
+    white-space: nowrap;
+  }
+  .view-tab:hover { color: var(--ink); }
+  .view-tab.active { color: var(--brand-dark); border-bottom-color: var(--brand); font-weight: 600; }
+
+  /* Toolbar */
+  .toolbar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 16px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .toolbar input[type=text], .toolbar input[type=date], .toolbar select {
+    font-family: var(--sans);
+    font-size: 13px;
+    padding: 8px 11px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--ink);
+  }
+  .toolbar input[type=text] { flex: 1; min-width: 200px; }
+  .toolbar .date-range { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-soft); }
+  .btn {
+    font-family: var(--sans);
+    font-size: 13.5px;
+    font-weight: 600;
+    padding: 9px 18px;
+    border-radius: var(--radius);
+    border: 1px solid var(--ink);
+    background: var(--ink);
+    color: var(--bg);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .btn:hover { background: #333933; }
+  .btn.secondary { background: var(--surface); color: var(--ink); border: 1px solid var(--line-strong); }
+  .btn.secondary:hover { background: var(--brand-tint); border-color: var(--brand); }
+  .btn.small { padding: 6px 12px; font-size: 12px; }
+  .btn.danger.outline { background: transparent; color: var(--red); border-color: var(--red); }
+
+  /* Table */
+  .table-wrap {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    overflow: auto;
+    margin-bottom: 12px;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 1400px; }
+  thead th {
+    text-align: left;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-soft);
+    font-weight: 600;
+    padding: 11px 12px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+    position: sticky;
+    top: 0;
+  }
+  tbody td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: #FCFBF7; }
+  tbody tr.clickable { cursor: pointer; }
+  .mono { font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace; font-size: 11.5px; color: var(--ink-soft); }
+  .empty-row td { text-align: center; padding: 48px 20px; color: var(--ink-faint); font-size: 13.5px; white-space: normal; }
+
+  /* Badges */
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 20px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+  .badge.green { background: var(--brand-tint); color: var(--brand-dark); }
+  .badge.gold { background: var(--gold-tint); color: var(--gold); }
+  .badge.red { background: var(--red-tint); color: var(--red); }
+  .badge.blue { background: var(--blue-tint); color: var(--blue); }
+  .badge.gray { background: var(--bg); color: var(--ink-soft); border: 1px solid var(--line); }
+  .badge.overdue { background: var(--red-tint); color: var(--red); margin-left: 6px; }
+
+  /* Modal */
+  .modal-overlay {
+    position: absolute; inset: 0; background: rgba(31,36,33,0.45);
+    display: none; align-items: flex-start; justify-content: center;
+    z-index: 50; padding: 40px 20px;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal {
+    background: var(--surface); border-radius: var(--radius-lg); width: 100%;
+    max-width: 760px; max-height: 85vh; overflow-y: auto; border: 1px solid var(--line);
+  }
+  .modal-head {
+    padding: 18px 24px; border-bottom: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: center;
+    position: sticky; top: 0; background: var(--surface);
+  }
+  .modal-head h3 { font-family: var(--serif); font-size: 19px; margin: 0; font-weight: 600; }
+  .modal-close { border: none; background: none; font-size: 20px; cursor: pointer; color: var(--ink-soft); line-height: 1; padding: 4px; }
+  .modal-body { padding: 20px 24px 24px; }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px 16px; }
+  .form-field { display: flex; flex-direction: column; gap: 5px; }
+  .form-field.full { grid-column: 1 / -1; }
+  .form-field label { font-size: 12px; font-weight: 600; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.04em; }
+  .form-field input, .form-field select, .form-field textarea {
+    font-family: var(--sans); font-size: 14px; padding: 9px 11px;
+    border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg); color: var(--ink);
+  }
+  .form-field input:focus, .form-field select:focus, .form-field textarea:focus {
+    outline: none; border-color: var(--brand); background: var(--surface);
+  }
+  .form-field textarea { resize: vertical; min-height: 60px; font-family: var(--sans); }
+  .modal-foot {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 16px 24px; border-top: 1px solid var(--line);
+    position: sticky; bottom: 0; background: var(--surface);
+  }
+
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: var(--ink); color: var(--bg); padding: 11px 22px; border-radius: 30px;
+    font-size: 13.5px; font-weight: 500; opacity: 0; transition: opacity 0.25s, transform 0.25s;
+    pointer-events: none; z-index: 100;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  @media (max-width: 1000px) {
+    .app { padding: 18px; }
+    .masthead { flex-direction: column; align-items: flex-start; }
+    .widget-row { grid-template-columns: repeat(2, 1fr); }
+    .form-grid { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 600px) {
+    .widget-row { grid-template-columns: 1fr; }
+    .form-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="app" style="position:relative;">
+
+  <div class="masthead">
+    <div class="masthead-left">
+      <p class="firm">Aayushman Money Mall</p>
+      <p class="sub">Transaction processing dashboard — operations control center</p>
+    </div>
+    <div class="masthead-right" id="headerStats"></div>
+  </div>
+
+  <div class="widget-row" id="widgetRow"></div>
+
+  <div class="summary-row" id="summaryRow"></div>
+
+  <div class="view-tabs" id="viewTabs">
+    <button class="view-tab active" data-view="all">All transactions</button>
+    <button class="view-tab" data-view="purchase">Purchase tracker</button>
+    <button class="view-tab" data-view="sip">SIP tracker</button>
+    <button class="view-tab" data-view="pending">Pending</button>
+    <button class="view-tab" data-view="today">Today's transactions</button>
+    <button class="view-tab" data-view="rejected">Rejected</button>
+    <button class="view-tab" data-view="employee">Employee-wise</button>
+  </div>
+
+  <div class="toolbar">
+    <input type="text" id="searchBox" placeholder="Search client, folio, AMC, scheme, ARN, EUIN, remarks...">
+    <select id="filterClient"><option value="">All clients</option></select>
+    <select id="filterAMC"><option value="">All AMCs</option></select>
+    <select id="filterType"><option value="">All transaction types</option></select>
+    <select id="filterEmployee"><option value="">All employees</option></select>
+    <div class="date-range">
+      <span>From</span>
+      <input type="date" id="dateFrom">
+      <span>To</span>
+      <input type="date" id="dateTo">
+    </div>
+    <button class="btn secondary small" id="clearFiltersBtn">Clear filters</button>
+    <button class="btn" id="addTxnBtn">+ Log transaction</button>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr id="tableHead"></tr>
+      </thead>
+      <tbody id="txnBody"></tbody>
+    </table>
+  </div>
+
+  <!-- TRANSACTION FORM MODAL -->
+  <div class="modal-overlay" id="txnModalOverlay">
+    <div class="modal">
+      <div class="modal-head">
+        <h3 id="txnModalTitle">Log transaction</h3>
+        <button class="modal-close" id="closeTxnModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="txnForm">
+          <div class="form-grid">
+            <div class="form-field"><label>Transaction date *</label><input type="date" id="t-txndate" required></div>
+            <div class="form-field"><label>Client name *</label><input type="text" id="t-client" required></div>
+            <div class="form-field"><label>Folio number</label><input type="text" id="t-folio"></div>
+
+            <div class="form-field"><label>AMC</label><input type="text" id="t-amc"></div>
+            <div class="form-field full"><label>Scheme name</label><input type="text" id="t-scheme"></div>
+
+            <div class="form-field">
+              <label>Transaction type *</label>
+              <select id="t-type" required>
+                <option>Purchase</option>
+                <option>Redemption</option>
+                <option>Switch In</option>
+                <option>Switch Out</option>
+                <option>SIP Registration</option>
+                <option>SIP Cancellation</option>
+                <option>STP Registration</option>
+                <option>STP Cancellation</option>
+                <option>SWP Registration</option>
+                <option>SWP Cancellation</option>
+              </select>
+            </div>
+            <div class="form-field"><label>Transaction amount (₹)</label><input type="number" id="t-amount" step="0.01"></div>
+            <div class="form-field"><label>Units</label><input type="number" id="t-units" step="0.0001"></div>
+
+            <div class="form-field">
+              <label>Transaction status</label>
+              <select id="t-status">
+                <option>Pending</option>
+                <option>Submitted</option>
+                <option>Processed</option>
+                <option>Rejected</option>
+              </select>
+            </div>
+            <div class="form-field"><label>Submission date</label><input type="date" id="t-subdate"></div>
+            <div class="form-field"><label>Expected completion date</label><input type="date" id="t-expdate"></div>
+
+            <div class="form-field"><label>Actual completion date</label><input type="date" id="t-actdate"></div>
+            <div class="form-field"><label>Assigned team member</label><input type="text" id="t-employee"></div>
+            <div class="form-field"><label>ARN used</label><input type="text" id="t-arn"></div>
+
+            <div class="form-field"><label>EUIN used</label><input type="text" id="t-euin"></div>
+            <div class="form-field full" style="grid-column: span 2;"><label>Remarks / notes</label><textarea id="t-notes"></textarea></div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-foot">
+        <button class="btn danger outline small" id="deleteTxnBtn" style="display:none;">Delete transaction</button>
+        <div style="display:flex; gap:8px; margin-left:auto;">
+          <button class="btn secondary" id="cancelTxnForm">Cancel</button>
+          <button class="btn" id="saveTxnBtn">Save transaction</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.47.0/iconfont/tabler-icons.min.css">
+<script>
+const TXN_TYPES = [
+  "Purchase","Redemption","Switch In","Switch Out","SIP Registration","SIP Cancellation",
+  "STP Registration","STP Cancellation","SWP Registration","SWP Cancellation"
+];
+const STATUSES = ["Pending","Submitted","Processed","Rejected"];
+
+const COLUMNS = [
+  { key: 'transactionDate', label: 'Txn date', type: 'date' },
+  { key: 'client', label: 'Client name' },
+  { key: 'folio', label: 'Folio no.', mono: true },
+  { key: 'amc', label: 'AMC' },
+  { key: 'scheme', label: 'Scheme name' },
+  { key: 'type', label: 'Transaction type' },
+  { key: 'amount', label: 'Amount', currency: true },
+  { key: 'units', label: 'Units', number: true },
+  { key: 'status', label: 'Status', badge: true },
+  { key: 'submissionDate', label: 'Submission date', type: 'date' },
+  { key: 'expectedDate', label: 'Expected completion', type: 'date' },
+  { key: 'actualDate', label: 'Actual completion', type: 'date' },
+  { key: 'employee', label: 'Assigned to' },
+  { key: 'arn', label: 'ARN', mono: true },
+  { key: 'euin', label: 'EUIN', mono: true },
+  { key: 'notes', label: 'Remarks' }
+];
+
+let transactions = [];
+let currentView = 'all';
+let editingTxnId = null;
+
+function uid() { return 'TXN-' + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+function fmtINR(n) {
+  n = Number(n) || 0;
+  return '₹' + n.toLocaleString('en-IN', {maximumFractionDigits: 2});
+}
+function fmtNum(n) {
+  n = Number(n) || 0;
+  return n.toLocaleString('en-IN', {maximumFractionDigits: 4});
+}
+function fmtDate(d) {
+  if (!d) return '—';
+  const dt = new Date(d);
+  if (isNaN(dt)) return d;
+  return dt.toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'});
+}
+function todayISO() { return new Date().toISOString().slice(0,10); }
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+// ---------- Storage ----------
+async function loadData() {
+  try {
+    const t = await window.storage.get('txn_log');
+    transactions = t ? JSON.parse(t.value) : [];
+  } catch (e) { transactions = []; }
+}
+async function saveData() {
+  try { await window.storage.set('txn_log', JSON.stringify(transactions)); }
+  catch (e) { showToast('Save failed — storage error'); }
+}
+
+function statusBadge(status) {
+  const map = { 'Processed': 'green', 'Submitted': 'blue', 'Pending': 'gold', 'Rejected': 'red' };
+  return `<span class="badge ${map[status] || 'gray'}">${status}</span>`;
+}
+
+function isOverdue(t) {
+  if (t.status === 'Processed' || t.status === 'Rejected') return false;
+  if (!t.expectedDate) return false;
+  return t.expectedDate < todayISO();
+}
+
+// ---------- Header stats ----------
+function renderHeaderStats() {
+  const today = todayISO();
+  const processedToday = transactions.filter(t => t.status === 'Processed' && t.actualDate === today).length;
+  const overdue = transactions.filter(isOverdue).length;
+  document.getElementById('headerStats').innerHTML = `
+    <div class="mh-stat"><div class="num">${transactions.length}</div><div class="lbl">Total transactions</div></div>
+    <div class="mh-stat"><div class="num">${processedToday}</div><div class="lbl">Processed today</div></div>
+    <div class="mh-stat"><div class="num">${overdue}</div><div class="lbl">Overdue</div></div>
+  `;
+}
+
+// ---------- Monthly summary cards ----------
+function currentMonthKey() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+}
+function isThisMonth(dateStr) {
+  if (!dateStr) return false;
+  return dateStr.slice(0,7) === currentMonthKey();
+}
+function renderSummaryRow() {
+  const monthTxns = transactions.filter(t => isThisMonth(t.transactionDate));
+
+  const totalPurchase = monthTxns.filter(t => t.type === 'Purchase').reduce((s,t) => s + (t.amount||0), 0);
+  const totalRedemption = monthTxns.filter(t => t.type === 'Redemption').reduce((s,t) => s + (t.amount||0), 0);
+  const netPurchase = totalPurchase - totalRedemption;
+
+  const sipStart = monthTxns.filter(t => t.type === 'SIP Registration').reduce((s,t) => s + (t.amount||0), 0);
+  const sipStop = monthTxns.filter(t => t.type === 'SIP Cancellation').reduce((s,t) => s + (t.amount||0), 0);
+  const netSIP = sipStart - sipStop;
+
+  const sipStartCount = monthTxns.filter(t => t.type === 'SIP Registration').length;
+  const sipStopCount = monthTxns.filter(t => t.type === 'SIP Cancellation').length;
+
+  document.getElementById('summaryRow').innerHTML = `
+    <div class="summary-group">
+      <div class="sg-title">Purchase summary — this month</div>
+      <div class="sg-stats">
+        <div class="sg-stat"><div class="sg-num positive">${fmtINR(totalPurchase)}</div><div class="sg-lbl">Total purchases</div></div>
+        <div class="sg-stat"><div class="sg-num negative">${fmtINR(totalRedemption)}</div><div class="sg-lbl">Total redemptions</div></div>
+        <div class="sg-stat"><div class="sg-num ${netPurchase >= 0 ? 'positive' : 'negative'}">${fmtINR(netPurchase)}</div><div class="sg-lbl">Net purchase</div></div>
+      </div>
+    </div>
+    <div class="summary-group">
+      <div class="sg-title">SIP summary — this month</div>
+      <div class="sg-stats">
+        <div class="sg-stat"><div class="sg-num positive">${fmtINR(sipStart)} <span style="font-size:13px; color:var(--ink-faint); font-family:var(--sans);">(${sipStartCount})</span></div><div class="sg-lbl">SIP start (registrations)</div></div>
+        <div class="sg-stat"><div class="sg-num negative">${fmtINR(sipStop)} <span style="font-size:13px; color:var(--ink-faint); font-family:var(--sans);">(${sipStopCount})</span></div><div class="sg-lbl">SIP stop (cancellations)</div></div>
+        <div class="sg-stat"><div class="sg-num ${netSIP >= 0 ? 'positive' : 'negative'}">${fmtINR(netSIP)}</div><div class="sg-lbl">Net SIP</div></div>
+      </div>
+    </div>
+  `;
+}
+
+
+function renderWidgets() {
+  const today = todayISO();
+  const pending = transactions.filter(t => t.status === 'Pending' || t.status === 'Submitted').length;
+  const processedToday = transactions.filter(t => (t.status === 'Processed' && t.actualDate === today) || t.transactionDate === today).length;
+  const rejected = transactions.filter(t => t.status === 'Rejected').length;
+  const upcomingSIP = transactions.filter(t => t.type === 'SIP Registration' && (t.status === 'Pending' || t.status === 'Submitted')).length;
+
+  const widgets = [
+    { key: 'pending', cls: 'gold', num: pending, lbl: 'Pending transactions' },
+    { key: 'today', cls: 'green', num: processedToday, lbl: "Today's transactions" },
+    { key: 'rejected', cls: 'red', num: rejected, lbl: 'Rejected transactions' },
+    { key: 'sip', cls: 'blue', num: upcomingSIP, lbl: 'Upcoming SIP registrations' }
+  ];
+  document.getElementById('widgetRow').innerHTML = widgets.map(w => `
+    <div class="widget ${w.cls}" onclick="widgetClick('${w.key}')">
+      <div class="w-num">${w.num}</div>
+      <div class="w-lbl">${w.lbl}</div>
+    </div>
+  `).join('');
+}
+
+window.widgetClick = function(key) {
+  if (key === 'pending') setView('pending');
+  else if (key === 'today') setView('today');
+  else if (key === 'rejected') setView('rejected');
+  else if (key === 'sip') {
+    setView('all');
+    document.getElementById('filterType').value = 'SIP Registration';
+    document.getElementById('searchBox').value = '';
+    renderTable();
+  }
+};
+
+// ---------- View tabs ----------
+function setView(view) {
+  currentView = view;
+  document.querySelectorAll('.view-tab').forEach(t => t.classList.toggle('active', t.dataset.view === view));
+  renderTable();
+}
+document.querySelectorAll('.view-tab').forEach(tab => {
+  tab.addEventListener('click', () => setView(tab.dataset.view));
+});
+
+// ---------- Filter dropdown population ----------
+function populateFilters() {
+  const clients = [...new Set(transactions.map(t => t.client).filter(Boolean))].sort();
+  const amcs = [...new Set(transactions.map(t => t.amc).filter(Boolean))].sort();
+  const employees = [...new Set(transactions.map(t => t.employee).filter(Boolean))].sort();
+
+  const clientSel = document.getElementById('filterClient');
+  const curClient = clientSel.value;
+  clientSel.innerHTML = '<option value="">All clients</option>' + clients.map(c => `<option value="${c}">${c}</option>`).join('');
+  clientSel.value = curClient;
+
+  const amcSel = document.getElementById('filterAMC');
+  const curAmc = amcSel.value;
+  amcSel.innerHTML = '<option value="">All AMCs</option>' + amcs.map(a => `<option value="${a}">${a}</option>`).join('');
+  amcSel.value = curAmc;
+
+  const typeSel = document.getElementById('filterType');
+  if (typeSel.options.length === 1) {
+    typeSel.innerHTML += TXN_TYPES.map(t => `<option value="${t}">${t}</option>`).join('');
+  }
+
+  const empSel = document.getElementById('filterEmployee');
+  const curEmp = empSel.value;
+  empSel.innerHTML = '<option value="">All employees</option>' + employees.map(e => `<option value="${e}">${e}</option>`).join('');
+  empSel.value = curEmp;
+}
+
+// ---------- Table ----------
+function renderTableHead(employeeGroup) {
+  const head = document.getElementById('tableHead');
+  if (employeeGroup) {
+    head.innerHTML = '<th>Assigned to</th>' + COLUMNS.filter(c => c.key !== 'employee').map(c => `<th>${c.label}</th>`).join('');
+  } else {
+    head.innerHTML = COLUMNS.map(c => `<th>${c.label}</th>`).join('');
+  }
+}
+
+function getFilteredTransactions() {
+  const search = document.getElementById('searchBox').value.toLowerCase();
+  const clientF = document.getElementById('filterClient').value;
+  const amcF = document.getElementById('filterAMC').value;
+  const typeF = document.getElementById('filterType').value;
+  const empF = document.getElementById('filterEmployee').value;
+  const dateFrom = document.getElementById('dateFrom').value;
+  const dateTo = document.getElementById('dateTo').value;
+  const today = todayISO();
+
+  let list = transactions.filter(t => {
+    if (search) {
+      const hay = [t.client, t.folio, t.amc, t.scheme, t.arn, t.euin, t.notes, t.employee].join(' ').toLowerCase();
+      if (!hay.includes(search)) return false;
+    }
+    if (clientF && t.client !== clientF) return false;
+    if (amcF && t.amc !== amcF) return false;
+    if (typeF && t.type !== typeF) return false;
+    if (empF && t.employee !== empF) return false;
+    if (dateFrom && (t.transactionDate || '') < dateFrom) return false;
+    if (dateTo && (t.transactionDate || '') > dateTo) return false;
+
+    if (currentView === 'pending' && !(t.status === 'Pending' || t.status === 'Submitted')) return false;
+    if (currentView === 'today' && t.transactionDate !== today) return false;
+    if (currentView === 'rejected' && t.status !== 'Rejected') return false;
+    if (currentView === 'purchase' && !(t.type === 'Purchase' || t.type === 'Redemption')) return false;
+    if (currentView === 'sip' && !(t.type === 'SIP Registration' || t.type === 'SIP Cancellation')) return false;
+
+    return true;
+  });
+  list = [...list].sort((a,b) => (b.transactionDate||'').localeCompare(a.transactionDate||''));
+  return list;
+}
+
+function renderRow(t, employeeGroup) {
+  const overdue = isOverdue(t);
+  const cells = COLUMNS.filter(c => !(employeeGroup && c.key === 'employee')).map(c => {
+    let val = t[c.key];
+    if (c.type === 'date') return `<td>${fmtDate(val)}</td>`;
+    if (c.currency) return `<td>${val ? fmtINR(val) : '—'}</td>`;
+    if (c.number) return `<td>${val ? fmtNum(val) : '—'}</td>`;
+    if (c.badge) {
+      let html = statusBadge(val);
+      if (c.key === 'status' && overdue) html += '<span class="badge overdue">Overdue</span>';
+      return `<td>${html}</td>`;
+    }
+    if (c.mono) return `<td class="mono">${val || '—'}</td>`;
+    return `<td>${val || '—'}</td>`;
+  }).join('');
+  if (employeeGroup) {
+    return `<tr class="clickable" onclick="editTransaction('${t.id}')"><td>${t.employee || '—'}</td>${cells}</tr>`;
+  }
+  return `<tr class="clickable" onclick="editTransaction('${t.id}')">${cells}</tr>`;
+}
+
+function renderTable() {
+  const employeeGroup = currentView === 'employee';
+  renderTableHead(employeeGroup);
+  let list = getFilteredTransactions();
+  const body = document.getElementById('txnBody');
+  const colCount = COLUMNS.length + (employeeGroup ? 1 : 0);
+
+  if (list.length === 0) {
+    body.innerHTML = `<tr class="empty-row"><td colspan="${colCount}"><i class="ti ti-receipt-2" style="font-size:26px;display:block;margin-bottom:8px;"></i>No transactions match the current view and filters</td></tr>`;
+    return;
+  }
+
+  if (employeeGroup) {
+    list = [...list].sort((a,b) => (a.employee||'').localeCompare(b.employee||'') || (b.transactionDate||'').localeCompare(a.transactionDate||''));
+  }
+
+  body.innerHTML = list.map(t => renderRow(t, employeeGroup)).join('');
+}
+
+// ---------- Filter listeners ----------
+['searchBox','filterClient','filterAMC','filterType','filterEmployee','dateFrom','dateTo'].forEach(id => {
+  document.getElementById(id).addEventListener('input', renderTable);
+  document.getElementById(id).addEventListener('change', renderTable);
+});
+document.getElementById('clearFiltersBtn').addEventListener('click', () => {
+  document.getElementById('searchBox').value = '';
+  document.getElementById('filterClient').value = '';
+  document.getElementById('filterAMC').value = '';
+  document.getElementById('filterType').value = '';
+  document.getElementById('filterEmployee').value = '';
+  document.getElementById('dateFrom').value = '';
+  document.getElementById('dateTo').value = '';
+  renderTable();
+});
+
+// ---------- Transaction form ----------
+function openTxnModal(txn) {
+  editingTxnId = txn ? txn.id : null;
+  document.getElementById('txnModalTitle').textContent = txn ? 'Edit transaction' : 'Log transaction';
+  document.getElementById('deleteTxnBtn').style.display = txn ? '' : 'none';
+  document.getElementById('t-txndate').value = txn?.transactionDate || todayISO();
+  document.getElementById('t-client').value = txn?.client || '';
+  document.getElementById('t-folio').value = txn?.folio || '';
+  document.getElementById('t-amc').value = txn?.amc || '';
+  document.getElementById('t-scheme').value = txn?.scheme || '';
+  document.getElementById('t-type').value = txn?.type || 'Purchase';
+  document.getElementById('t-amount').value = txn?.amount || '';
+  document.getElementById('t-units').value = txn?.units || '';
+  document.getElementById('t-status').value = txn?.status || 'Pending';
+  document.getElementById('t-subdate').value = txn?.submissionDate || todayISO();
+  document.getElementById('t-expdate').value = txn?.expectedDate || '';
+  document.getElementById('t-actdate').value = txn?.actualDate || '';
+  document.getElementById('t-employee').value = txn?.employee || '';
+  document.getElementById('t-arn').value = txn?.arn || '';
+  document.getElementById('t-euin').value = txn?.euin || '';
+  document.getElementById('t-notes').value = txn?.notes || '';
+  document.getElementById('txnModalOverlay').classList.add('show');
+}
+function closeTxnModal() {
+  document.getElementById('txnModalOverlay').classList.remove('show');
+  document.getElementById('txnForm').reset();
+  editingTxnId = null;
+}
+document.getElementById('addTxnBtn').addEventListener('click', () => openTxnModal(null));
+document.getElementById('closeTxnModal').addEventListener('click', closeTxnModal);
+document.getElementById('cancelTxnForm').addEventListener('click', closeTxnModal);
+
+window.editTransaction = function(id) {
+  const t = transactions.find(x => x.id === id);
+  if (t) openTxnModal(t);
+};
+
+document.getElementById('saveTxnBtn').addEventListener('click', async () => {
+  const client = document.getElementById('t-client').value.trim();
+  if (!client) { showToast('Client name is required'); return; }
+  const data = {
+    transactionDate: document.getElementById('t-txndate').value || todayISO(),
+    client,
+    folio: document.getElementById('t-folio').value.trim(),
+    amc: document.getElementById('t-amc').value.trim(),
+    scheme: document.getElementById('t-scheme').value.trim(),
+    type: document.getElementById('t-type').value,
+    amount: parseFloat(document.getElementById('t-amount').value) || 0,
+    units: parseFloat(document.getElementById('t-units').value) || 0,
+    status: document.getElementById('t-status').value,
+    submissionDate: document.getElementById('t-subdate').value,
+    expectedDate: document.getElementById('t-expdate').value,
+    actualDate: document.getElementById('t-actdate').value,
+    employee: document.getElementById('t-employee').value.trim(),
+    arn: document.getElementById('t-arn').value.trim(),
+    euin: document.getElementById('t-euin').value.trim(),
+    notes: document.getElementById('t-notes').value.trim()
+  };
+  if (editingTxnId) {
+    const idx = transactions.findIndex(t => t.id === editingTxnId);
+    data.id = editingTxnId;
+    transactions[idx] = { ...transactions[idx], ...data };
+    showToast('Transaction updated');
+  } else {
+    data.id = uid();
+    transactions.push(data);
+    showToast('Transaction logged');
+  }
+  await saveData();
+  closeTxnModal();
+  renderAll();
+});
+
+document.getElementById('deleteTxnBtn').addEventListener('click', async () => {
+  if (!confirm('Delete this transaction record?')) return;
+  transactions = transactions.filter(t => t.id !== editingTxnId);
+  await saveData();
+  closeTxnModal();
+  showToast('Transaction deleted');
+  renderAll();
+});
+
+// ---------- Orchestration ----------
+function renderAll() {
+  renderHeaderStats();
+  renderSummaryRow();
+  renderWidgets();
+  populateFilters();
+  renderTable();
+}
+
+(async function init() {
+  await loadData();
+  renderAll();
+})();
+</script>
+</body>
+</html>

@@ -8,10 +8,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_app_settings, get_db, get_request_id, require_roles
+from app.api.deps import get_app_settings, get_db, get_request_id, require_module_roles
 from app.api.errors import raise_api_error
 from app.core.config import Settings
-from app.domain.enums import ImportBatchStatus, ImportRowStatus, UserRole
+from app.domain.enums import ImportBatchStatus, ImportRowStatus, ModuleCode, ModuleRole
 from app.models.user import User
 from app.schemas.imports import (
     ImportBatchListResponse,
@@ -28,7 +28,7 @@ from app.services.mfu_imports import (
 
 router = APIRouter(prefix="/imports", tags=["imports"])
 
-require_import_user = require_roles(UserRole.ADMIN, UserRole.OPS)
+require_import_user = require_module_roles(ModuleCode.CAN_COMPLIANCE, ModuleRole.CAN_ADMIN, ModuleRole.CAN_OPS)
 
 
 def _request_id(request: Request) -> str | None:

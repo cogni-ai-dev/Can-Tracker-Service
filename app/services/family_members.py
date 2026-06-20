@@ -18,8 +18,9 @@ from app.core.pii import (
     decrypt_pii_value,
     protect_pii_value,
 )
+from app.domain.access import user_can_read_sensitive_can, user_can_write_all_can, user_has_module_role, user_is_can_rm
 from app.domain.compliance import CountPercentage, family_completion
-from app.domain.enums import AuditAction, AuditEntityType, ChangeSource, UserRole
+from app.domain.enums import AuditAction, AuditEntityType, ChangeSource, ModuleCode, ModuleRole
 from app.models.audit import AuditLog
 from app.models.family import Family, Member
 from app.models.user import User
@@ -228,14 +229,14 @@ def _member_to_response_data(
 
 
 def _ensure_sensitive_read_allowed(actor: User, include_sensitive: bool) -> None:
-    if include_sensitive and actor.role != UserRole.ADMIN:
+    if include_sensitive and not user_can_read_sensitive_can(actor):
         _forbidden("Only admin users can request full sensitive member values.")
 
 
 def _ensure_family_update_allowed(actor: User, family: Family, payload: FamilyUpdate) -> None:
-    if actor.role in {UserRole.ADMIN, UserRole.OPS}:
+    if user_can_write_all_can(actor):
         return
-    if actor.role == UserRole.RM and str(family.primary_rm_id) == str(actor.id):
+    if user_is_can_rm(actor) and str(family.primary_rm_id) == str(actor.id):
         disallowed = payload.model_fields_set - {"remarks"}
         if disallowed:
             _forbidden("RM users can only update remarks on assigned families.")
@@ -244,9 +245,9 @@ def _ensure_family_update_allowed(actor: User, family: Family, payload: FamilyUp
 
 
 def _ensure_member_update_allowed(actor: User, family: Family, payload: MemberUpdate) -> None:
-    if actor.role in {UserRole.ADMIN, UserRole.OPS}:
+    if user_can_write_all_can(actor):
         return
-    if actor.role == UserRole.RM and str(family.primary_rm_id) == str(actor.id):
+    if user_is_can_rm(actor) and str(family.primary_rm_id) == str(actor.id):
         disallowed = payload.model_fields_set - {"remarks"}
         if disallowed:
             _forbidden("RM users can only update remarks on assigned members.")
@@ -256,7 +257,17 @@ def _ensure_member_update_allowed(actor: User, family: Family, payload: MemberUp
 
 def _ensure_active_rm(db: Session, rm_id: UUID) -> User:
     rm = db.get(User, rm_id)
-    if rm is None or rm.deleted_at is not None or not rm.is_active or rm.role != UserRole.RM:
+    if (
+        rm is None
+        or rm.deleted_at is not None
+        or not rm.is_active
+        or not user_has_module_role(
+            rm,
+            ModuleCode.CAN_COMPLIANCE,
+            ModuleRole.CAN_RM,
+            platform_admin_bypass=False,
+        )
+    ):
         _validation_error("primary_rm_id must reference an active RM user.")
     return rm
 

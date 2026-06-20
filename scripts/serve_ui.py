@@ -6,7 +6,6 @@ from http.client import HTTPConnection
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -104,7 +103,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--port", type=int, default=8081, help="UI bind port.")
     parser.add_argument("--api-host", default="127.0.0.1", help="API host for proxying /api requests.")
     parser.add_argument("--api-port", type=int, default=8000, help="API port for proxying /api requests.")
-    parser.add_argument("--html", type=Path, default=ROOT / "remixed-c3e65622.html", help="Standalone HTML file to serve.")
+    parser.add_argument(
+        "--html",
+        type=Path,
+        default=ROOT / "can_tracker_dashboard.html",
+        help="Standalone HTML file to serve.",
+    )
     return parser.parse_args()
 
 

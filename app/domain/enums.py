@@ -102,3 +102,19 @@ class UserRole(CanonicalStrEnum):
     OPS = "ops"
     RM = "rm"
     MANAGEMENT = "management"
+
+
+class ModuleCode(CanonicalStrEnum):
+    CAN_COMPLIANCE = "can_compliance"
+    CLIENT_CRM = "client_crm"
+
+
+class ModuleRole(CanonicalStrEnum):
+    CAN_ADMIN = "can_admin"
+    CAN_OPS = "can_ops"
+    CAN_RM = "can_rm"
+    CAN_MANAGEMENT = "can_management"
+    CRM_ADMIN = "crm_admin"
+    CRM_OPS = "crm_ops"
+    CRM_RELATIONSHIP_MANAGER = "crm_relationship_manager"
+    CRM_VIEWER = "crm_viewer"

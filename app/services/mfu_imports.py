@@ -23,14 +23,16 @@ from app.core.pii import (
     mask_pii_value,
     protect_pii_value,
 )
+from app.domain.access import user_has_module_role
 from app.domain.enums import (
     AuditEntityType,
     ChangeSource,
     ImportBatchStatus,
     ImportRowStatus,
     KycStatus,
+    ModuleCode,
+    ModuleRole,
     PayeezzStatus,
-    UserRole,
     VerificationStatus,
 )
 from app.models.family import Family, Member
@@ -238,11 +240,17 @@ def _find_active_rm(db: Session, *, email: str | None, name: str | None, errors:
         rm = db.scalar(
             select(User).where(
                 User.email == email.lower(),
-                User.role == UserRole.RM,
                 User.is_active.is_(True),
                 User.deleted_at.is_(None),
             )
         )
+        if rm is not None and not user_has_module_role(
+            rm,
+            ModuleCode.CAN_COMPLIANCE,
+            ModuleRole.CAN_RM,
+            platform_admin_bypass=False,
+        ):
+            rm = None
         if rm is None:
             errors.append("PrimaryRMEmail: must match an active RM user.")
         return rm
@@ -252,12 +260,21 @@ def _find_active_rm(db: Session, *, email: str | None, name: str | None, errors:
             db.scalars(
                 select(User).where(
                     User.name == name,
-                    User.role == UserRole.RM,
                     User.is_active.is_(True),
                     User.deleted_at.is_(None),
                 )
             )
         )
+        matches = [
+            user
+            for user in matches
+            if user_has_module_role(
+                user,
+                ModuleCode.CAN_COMPLIANCE,
+                ModuleRole.CAN_RM,
+                platform_admin_bypass=False,
+            )
+        ]
         if len(matches) == 1:
             return matches[0]
         if not matches:
@@ -667,14 +684,21 @@ def _apply_import_member_data(
 def _active_rm_by_id(db: Session, rm_id: str | UUID | None) -> User | None:
     if rm_id is None:
         return None
-    return db.scalar(
+    rm = db.scalar(
         select(User).where(
             User.id == UUID(str(rm_id)),
-            User.role == UserRole.RM,
             User.is_active.is_(True),
             User.deleted_at.is_(None),
         )
     )
+    if rm is None or not user_has_module_role(
+        rm,
+        ModuleCode.CAN_COMPLIANCE,
+        ModuleRole.CAN_RM,
+        platform_admin_bypass=False,
+    ):
+        return None
+    return rm
 
 
 def _mark_commit_conflict(row: ImportRow, message: str) -> None:

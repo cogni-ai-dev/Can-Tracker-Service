@@ -10,8 +10,9 @@ from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.api.errors import raise_api_error
+from app.domain.access import user_is_can_rm
 from app.domain.compliance import family_completion
-from app.domain.enums import KycStatus, PayeezzStatus, ReportExportFormat, ReportType, UserRole, VerificationStatus
+from app.domain.enums import KycStatus, PayeezzStatus, ReportExportFormat, ReportType, VerificationStatus
 from app.domain.reports import ReportDefinition, get_report_definition
 from app.models.family import Family, Member
 from app.models.reporting import ReportExport
@@ -68,7 +69,7 @@ def parse_report_export_format(value: str) -> ReportExportFormat:
 
 
 def _effective_rm_id(actor: User, requested_rm_id: UUID | None) -> UUID | None:
-    if actor.role == UserRole.RM:
+    if user_is_can_rm(actor):
         if requested_rm_id is not None:
             _forbidden("RM users are automatically scoped and cannot use rm_id filters.")
         return actor.id

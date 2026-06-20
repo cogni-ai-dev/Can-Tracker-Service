@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MFU CAN Tracker — Family Compliance Dashboard</title>
+<title>MFU Operations Portal</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
@@ -232,6 +232,39 @@
   .report-desc { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
   .report-actions { display: flex; gap: 6px; }
   .reports-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+
+  /* TRANSACTION PROCESSING */
+  .txn-summary-grid { display: grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .txn-summary-card { background: var(--white); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .txn-summary-title { font-size: 11px; font-weight: 700; color: var(--text-muted); letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 10px; }
+  .txn-summary-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .txn-summary-val { font-size: 18px; font-weight: 700; color: var(--navy); font-family: 'JetBrains Mono', monospace; line-height: 1.1; }
+  .txn-summary-val.positive { color: var(--green-text); }
+  .txn-summary-val.negative { color: var(--red-text); }
+  .txn-summary-label { font-size: 10.5px; color: var(--text-secondary); margin-top: 4px; line-height: 1.3; }
+  .txn-view-tabs { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 14px; overflow-x: auto; }
+  .txn-view-tab { padding: 9px 16px; font-size: 12.5px; font-weight: 600; color: var(--text-secondary); cursor: pointer; border: 0; background: transparent; border-bottom: 2px solid transparent; margin-bottom: -2px; white-space: nowrap; font-family: 'Inter', sans-serif; }
+  .txn-view-tab:hover { color: var(--navy); }
+  .txn-view-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .txn-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+  .txn-toolbar #txn-search { flex: 1 1 260px; }
+  .txn-toolbar select { flex: 1 1 140px; max-width: 180px; }
+  .txn-date-range { display: flex; align-items: center; gap: 6px; white-space: nowrap; flex: 1 1 320px; }
+  .txn-date-range span { font-size: 11px; font-weight: 600; color: var(--text-secondary); }
+  .txn-date-range input { flex: 1 1 120px; min-width: 120px; }
+  .txn-toolbar input, .txn-toolbar select { min-width: 0; }
+  .txn-toolbar .btn { justify-content: center; flex: 0 0 auto; }
+  .txn-table-wrap { overflow-x: auto; }
+  .txn-table-wrap table { min-width: 1320px; }
+  .txn-table-wrap tbody tr.clickable { cursor: pointer; }
+  .txn-table-wrap tbody tr.clickable:hover { background: #eff6ff; }
+  .txn-mono { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-secondary); }
+  .txn-empty td { text-align: center; padding: 38px 20px; color: var(--text-muted); }
+  .txn-empty-title { color: var(--text-secondary); font-weight: 700; margin-bottom: 4px; }
+  .txn-overdue { margin-left: 6px; }
+  .txn-modal .modal { max-width: 920px; }
+  .txn-modal .form-grid-3 { align-items: start; }
+
   .admin-toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
   .admin-toolbar input { min-width:220px; }
   .admin-current { font-size:10.5px; color:var(--text-muted); font-weight:600; }
@@ -252,6 +285,11 @@
     .sb-avatar { margin: 0 auto; }
     .sb-password, .sb-logout { padding: 7px; }
     .sb-password span, .sb-logout span { display: none; }
+    .txn-summary-grid { grid-template-columns: 1fr; }
+    .txn-summary-stats { grid-template-columns: 1fr; }
+    .txn-toolbar { flex-direction: column; align-items: stretch; }
+    .txn-toolbar select { max-width: none; }
+    .txn-date-range { flex-wrap: wrap; }
     .form-grid, .form-grid-3 { grid-template-columns: 1fr; }
   }
 </style>
@@ -263,11 +301,11 @@
 <nav id="sidebar">
   <div class="sb-brand">
     <div class="sb-brand-sub">MFU Platform</div>
-    <div class="sb-brand-title">CAN Tracker & Compliance Dashboard</div>
+    <div class="sb-brand-title">MFU Operations Portal</div>
   </div>
 
-  <div class="sb-section">
-    <div class="sb-section-label">Overview</div>
+  <div class="sb-section" data-module="can_compliance">
+    <div class="sb-section-label">Compliance</div>
     <div class="sb-item active" onclick="navigate('dashboard')">
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v5a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v2a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zM14 13a1 1 0 011-1h4a1 1 0 011 1v6a1 1 0 01-1 1h-4a1 1 0 01-1-1v-6z"/></svg>
       <span>Dashboard</span>
@@ -276,10 +314,7 @@
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
       <span>Families</span>
     </div>
-  </div>
 
-  <div class="sb-section">
-    <div class="sb-section-label">Compliance</div>
     <div class="sb-item" onclick="navigate('kyc')">
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
       <span>KYC Status</span>
@@ -301,7 +336,15 @@
     </div>
   </div>
 
-  <div class="sb-section">
+  <div class="sb-section" data-module="client_crm">
+    <div class="sb-section-label">Transactions</div>
+    <div class="sb-item" onclick="navigate('transactions')">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14h6m-7 4h8M7 4h10a2 2 0 012 2v14l-3-2-3 2-3-2-3 2V6a2 2 0 012-2z"/></svg>
+      <span>Processing</span>
+    </div>
+  </div>
+
+  <div class="sb-section" data-module="can_compliance">
     <div class="sb-section-label">Output</div>
     <div class="sb-item" onclick="navigate('reports')">
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
@@ -345,11 +388,11 @@
       <input type="text" id="global-search" placeholder="Search family, member, PAN, CAN…" oninput="globalSearch(this.value)">
     </div>
     <div class="tb-actions">
-      <button class="btn btn-secondary" onclick="navigate('reports')">
+      <button class="btn btn-secondary" id="top-export-button" onclick="navigate('reports')">
         <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
         Export
       </button>
-      <button class="btn btn-primary" onclick="openAddFamily()" data-role-action="family-create">
+      <button class="btn btn-primary" id="top-add-family-button" onclick="openAddFamily()" data-role-action="family-create">
         <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
         Add Family
       </button>
@@ -559,6 +602,56 @@
       </div>
     </div>
 
+    <!-- TRANSACTION PROCESSING PAGE -->
+    <div id="page-transactions" class="page">
+      <div class="page-header">
+        <div class="page-icon"><svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14h6m-7 4h8M7 4h10a2 2 0 012 2v14l-3-2-3 2-3-2-3 2V6a2 2 0 012-2z"/></svg></div>
+        <div><div class="page-title">Client CRM</div><div class="page-sub">Mutual fund order logging, assignment, and completion tracking</div></div>
+        <div style="margin-left:auto;"><button class="btn btn-primary" onclick="openTransactionModal()">+ Log Transaction</button></div>
+      </div>
+
+      <div class="kpi-grid" id="txn-kpi-row"></div>
+      <div class="txn-summary-grid" id="txn-summary-row"></div>
+
+      <div class="txn-view-tabs" id="txn-view-tabs">
+        <button class="txn-view-tab active" data-txn-view="all" onclick="setTransactionView('all')">All Transactions</button>
+        <button class="txn-view-tab" data-txn-view="purchase" onclick="setTransactionView('purchase')">Purchase Tracker</button>
+        <button class="txn-view-tab" data-txn-view="sip" onclick="setTransactionView('sip')">SIP Tracker</button>
+        <button class="txn-view-tab" data-txn-view="pending" onclick="setTransactionView('pending')">Pending</button>
+        <button class="txn-view-tab" data-txn-view="today" onclick="setTransactionView('today')">Today</button>
+        <button class="txn-view-tab" data-txn-view="rejected" onclick="setTransactionView('rejected')">Rejected</button>
+        <button class="txn-view-tab" data-txn-view="employee" onclick="setTransactionView('employee')">Employee-wise</button>
+      </div>
+
+      <div class="txn-toolbar">
+        <input type="text" id="txn-search" placeholder="Search client, folio, AMC, scheme, ARN, EUIN, remarks..." oninput="renderTransactionTable()">
+        <select id="txn-filter-client" onchange="renderTransactionTable()"><option value="">All clients</option></select>
+        <select id="txn-filter-amc" onchange="renderTransactionTable()"><option value="">All AMCs</option></select>
+        <select id="txn-filter-type" onchange="renderTransactionTable()"><option value="">All transaction types</option></select>
+        <select id="txn-filter-employee" onchange="renderTransactionTable()"><option value="">All employees</option></select>
+        <div class="txn-date-range">
+          <span>From</span>
+          <input type="date" id="txn-date-from" onchange="renderTransactionTable()">
+          <span>To</span>
+          <input type="date" id="txn-date-to" onchange="renderTransactionTable()">
+        </div>
+        <button class="btn btn-secondary" onclick="clearTransactionFilters()">Clear</button>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <div class="section-title" id="txn-table-title">All Transactions</div>
+          <div class="section-actions"><button class="btn btn-secondary btn-sm" onclick="resetTransactionDemoData()">Reset Sample Data</button></div>
+        </div>
+        <div class="txn-table-wrap">
+          <table>
+            <thead><tr id="txn-table-head"></tr></thead>
+            <tbody id="txn-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     <!-- REPORTS PAGE -->
     <div id="page-reports" class="page">
       <div class="page-header">
@@ -625,7 +718,7 @@
     <div id="page-admin-users" class="page">
       <div class="page-header">
         <div class="page-icon"><svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a4 4 0 00-4-4h-1M9 20H4v-2a4 4 0 014-4h1m8-4a4 4 0 10-8 0 4 4 0 008 0zm-4 4a4 4 0 100-8 4 4 0 000 8z"/></svg></div>
-        <div><div class="page-title">User Management</div><div class="page-sub">Admin-only access for RM, operations, and management accounts</div></div>
+        <div><div class="page-title">User Management</div><div class="page-sub">Manage users and module access across operations workflows</div></div>
         <div style="margin-left:auto;" data-admin-only><button class="btn btn-primary" onclick="openAddUser()">+ Add User</button></div>
       </div>
       <div class="admin-toolbar" data-admin-only>
@@ -669,7 +762,7 @@
         <div class="section-header"><div class="section-title" id="admin-users-title">Users</div></div>
         <div class="tbl-wrap">
           <table>
-            <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Last Login</th><th>Updated</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Access</th><th>Status</th><th>Last Login</th><th>Updated</th><th>Actions</th></tr></thead>
             <tbody id="admin-users-table-body"></tbody>
           </table>
         </div>
@@ -776,9 +869,55 @@
   </div>
 </div>
 
+<!-- ADD/EDIT TRANSACTION MODAL -->
+<div class="modal-overlay txn-modal" id="transaction-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="txn-modal-title">Log Transaction</div>
+      <div class="modal-close" onclick="closeTransactionModal()">
+        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </div>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid-3">
+        <div class="form-group"><label>Transaction Date *</label><input type="date" id="txn-date"></div>
+        <div class="form-group"><label>Client Name *</label><input type="text" id="txn-client" placeholder="Client name"></div>
+        <div class="form-group"><label>Folio Number</label><input type="text" id="txn-folio" placeholder="Folio number"></div>
+
+        <div class="form-group"><label>AMC</label><input type="text" id="txn-amc" placeholder="AMC"></div>
+        <div class="form-group full"><label>Scheme Name</label><input type="text" id="txn-scheme" placeholder="Scheme name"></div>
+
+        <div class="form-group"><label>Transaction Type *</label>
+          <select id="txn-type"></select>
+        </div>
+        <div class="form-group"><label>Amount (₹)</label><input type="number" id="txn-amount" step="0.01" placeholder="0.00"></div>
+        <div class="form-group"><label>Units</label><input type="number" id="txn-units" step="0.0001" placeholder="0.0000"></div>
+
+        <div class="form-group"><label>Status *</label>
+          <select id="txn-status"></select>
+        </div>
+        <div class="form-group"><label>Submission Date</label><input type="date" id="txn-submission-date"></div>
+        <div class="form-group"><label>Expected Completion</label><input type="date" id="txn-expected-date"></div>
+
+        <div class="form-group"><label>Actual Completion</label><input type="date" id="txn-actual-date"></div>
+        <div class="form-group"><label>Assigned Team Member</label><input type="text" id="txn-employee" placeholder="Team member"></div>
+        <div class="form-group"><label>ARN Used</label><input type="text" id="txn-arn" placeholder="ARN"></div>
+
+        <div class="form-group"><label>EUIN Used</label><input type="text" id="txn-euin" placeholder="EUIN"></div>
+        <div class="form-group full"><label>Remarks</label><textarea id="txn-notes" placeholder="Processing notes"></textarea></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-danger" id="txn-delete-button" onclick="deleteCurrentTransaction()" style="margin-right:auto;display:none;">Delete Transaction</button>
+      <button class="btn btn-secondary" onclick="closeTransactionModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveTransaction()">Save Transaction</button>
+    </div>
+  </div>
+</div>
+
 <!-- ADD/EDIT USER MODAL -->
 <div class="modal-overlay" id="user-modal">
-  <div class="modal" style="max-width:720px;">
+  <div class="modal" style="max-width:780px;">
     <div class="modal-header">
       <div class="modal-title" id="user-modal-title">Add User</div>
       <div class="modal-close" onclick="closeModal('user-modal')">
@@ -803,6 +942,24 @@
             <option value="false">Inactive</option>
           </select>
         </div>
+        <div class="form-group" id="u-can-role-wrap"><label>Compliance Access</label>
+          <select id="u-can-role" onchange="syncPrimaryRoleFromModuleAccess()">
+            <option value="">No Compliance access</option>
+            <option value="can_admin">CAN Admin</option>
+            <option value="can_ops">CAN Ops</option>
+            <option value="can_rm">CAN RM</option>
+            <option value="can_management">CAN Management</option>
+          </select>
+        </div>
+        <div class="form-group" id="u-txn-role-wrap"><label>Client CRM Access</label>
+          <select id="u-txn-role" onchange="syncPrimaryRoleFromModuleAccess()">
+            <option value="">No Client CRM access</option>
+            <option value="crm_admin">CRM Admin</option>
+            <option value="crm_ops">CRM Ops</option>
+            <option value="crm_relationship_manager">Relationship Manager</option>
+            <option value="crm_viewer">CRM Viewer</option>
+          </select>
+        </div>
         <div class="form-group full">
           <div class="role-access-grid" style="padding:0;">
             <div class="role-access-item">
@@ -820,6 +977,14 @@
             <div class="role-access-item">
               <div class="role-access-title">Management</div>
               <div class="role-access-text">Read-only access across dashboards, records, tasks, and reports.</div>
+            </div>
+            <div class="role-access-item">
+              <div class="role-access-title">CRM Admin</div>
+              <div class="role-access-text">Manages CRM users and full client operations workflow access.</div>
+            </div>
+            <div class="role-access-item">
+              <div class="role-access-title">Ops / Relationship / Viewer</div>
+              <div class="role-access-text">CRM roles for operations work, relationship follow-up, and read-only access.</div>
             </div>
           </div>
         </div>
@@ -879,6 +1044,10 @@ let db = {
   payTab: 'all',
   contactTab: 'all',
   taskTab: 'all',
+  transactionView: 'all',
+  editTransactionId: null,
+  transactions: [],
+  transactionsLoaded: false,
   rms: [],
   users: [],
   rmById: new Map(),
@@ -1024,6 +1193,61 @@ function userLabel(user) {
   return user?.name || user?.email || '-';
 }
 
+function userMemberships() {
+  return Array.isArray(db.currentUser?.memberships) ? db.currentUser.memberships : [];
+}
+
+function isPlatformAdmin() {
+  return db.currentUser?.is_platform_admin === true || db.currentUser?.role === 'admin';
+}
+
+function hasModuleRole(moduleCode, roles) {
+  if (isPlatformAdmin()) return true;
+  const allowed = Array.isArray(roles) ? roles : [roles];
+  const memberships = userMemberships();
+  if (memberships.length) {
+    return memberships.some(m => m.is_active !== false && m.module_code === moduleCode && allowed.includes(m.role));
+  }
+  const legacyCanRoles = { admin: 'can_admin', ops: 'can_ops', rm: 'can_rm', management: 'can_management' };
+  return moduleCode === 'can_compliance' && allowed.includes(legacyCanRoles[db.currentUser?.role]);
+}
+
+function canAccessModule(moduleCode) {
+  if (isPlatformAdmin()) return true;
+  const memberships = userMemberships();
+  if (memberships.length) return memberships.some(m => m.is_active !== false && m.module_code === moduleCode);
+  return moduleCode === 'can_compliance' && ['admin', 'ops', 'rm', 'management'].includes(db.currentUser?.role);
+}
+
+function canAccessCan() {
+  return canAccessModule('can_compliance');
+}
+
+function canAccessTransactions() {
+  return canAccessModule('client_crm');
+}
+
+function isCanRM() {
+  return hasModuleRole('can_compliance', 'can_rm') && !isPlatformAdmin();
+}
+
+function userAccessLabel() {
+  if (isPlatformAdmin()) return 'Platform Admin';
+  const labels = {
+    can_admin: 'CAN Admin',
+    can_ops: 'CAN Ops',
+    can_rm: 'CAN RM',
+    can_management: 'CAN Management',
+    crm_admin: 'CRM Admin',
+    crm_ops: 'CRM Ops',
+    crm_relationship_manager: 'Relationship Manager',
+    crm_viewer: 'CRM Viewer',
+  };
+  const active = userMemberships().filter(m => m.is_active !== false).map(m => labels[m.role] || m.role);
+  if (active.length) return active.join(' / ');
+  return db.currentUser?.role || 'Operations';
+}
+
 function rememberMembers(members) {
   members.forEach(member => db.memberById.set(member.id, member));
 }
@@ -1036,7 +1260,7 @@ async function loadRMs() {
   try {
     db.rms = await api.get('/rms');
   } catch (error) {
-    db.rms = db.currentUser?.role === 'rm' ? [db.currentUser] : [];
+    db.rms = isCanRM() ? [db.currentUser] : [];
     if (error.status && error.status !== 403) showToast(friendlyError(error));
   }
   db.rmById = new Map(db.rms.map(rm => [rm.id, rm]));
@@ -1067,7 +1291,7 @@ function buildLoginScreen() {
   auth.className = 'auth-screen app-hidden';
   auth.innerHTML = `
     <form class="auth-panel" id="login-form">
-      <div class="auth-title">CAN Tracker Sign In</div>
+      <div class="auth-title">MFU Operations Portal Sign In</div>
       <div class="auth-sub">Use your distributor operations account.</div>
       <div class="auth-error" id="login-error"></div>
       <div class="form-group"><label>Email</label><input type="email" id="login-email" autocomplete="username" required></div>
@@ -1116,6 +1340,10 @@ function resetSessionState() {
   db.editFamilyId = null;
   db.editMemberId = null;
   db.editUserId = null;
+  db.transactionView = 'all';
+  db.editTransactionId = null;
+  db.transactions = [];
+  db.transactionsLoaded = false;
   db.rms = [];
   db.users = [];
   db.rmById = new Map();
@@ -1195,24 +1423,24 @@ function updateUserChrome() {
   document.getElementById('sb-username').textContent = name;
   document.getElementById('sb-avatar-text').textContent = initials(name);
   const roleEl = document.querySelector('.sb-user-info div:last-child');
-  if (roleEl) roleEl.textContent = db.currentUser?.role || 'Operations';
+  if (roleEl) roleEl.textContent = userAccessLabel();
   refreshRoleControls();
 }
 
 async function afterAuthenticated() {
   showApp();
   updateUserChrome();
-  await loadRMs();
   db.bootstrapped = true;
-  await renderDashboard();
+  if (canAccessCan()) await loadRMs();
+  navigate(canAccessCan() ? 'dashboard' : 'transactions');
 }
 
 function isAdminOps() {
-  return ['admin', 'ops'].includes(db.currentUser?.role);
+  return hasModuleRole('can_compliance', ['can_admin', 'can_ops']);
 }
 
 function canEditFamily() {
-  return isAdminOps() || db.currentUser?.role === 'rm';
+  return isAdminOps() || isCanRM();
 }
 
 function canCreateFamily() {
@@ -1224,7 +1452,7 @@ function canCreateMember() {
 }
 
 function canEditMember() {
-  return isAdminOps() || db.currentUser?.role === 'rm';
+  return isAdminOps() || isCanRM();
 }
 
 function canDeleteMember() {
@@ -1232,7 +1460,7 @@ function canDeleteMember() {
 }
 
 function canManageUsers() {
-  return db.currentUser?.role === 'admin';
+  return isPlatformAdmin() || hasModuleRole('can_compliance', 'can_admin') || hasModuleRole('client_crm', 'crm_admin');
 }
 
 function refreshRoleControls() {
@@ -1247,6 +1475,9 @@ function refreshRoleControls() {
   document.querySelectorAll('[data-admin-only]').forEach(el => {
     el.style.display = canManageUsers() ? '' : 'none';
   });
+  document.querySelectorAll('[data-module]').forEach(el => {
+    el.style.display = canAccessModule(el.dataset.module) ? '' : 'none';
+  });
 }
 
 function setDisabled(ids, disabled) {
@@ -1257,12 +1488,12 @@ function setDisabled(ids, disabled) {
 }
 
 function setFamilyModalAccess(isEdit) {
-  const remarksOnly = isEdit && db.currentUser?.role === 'rm';
+  const remarksOnly = isEdit && isCanRM();
   setDisabled(['f-head', 'f-code', 'f-rm'], remarksOnly);
 }
 
 function setMemberModalAccess(isEdit) {
-  const remarksOnly = isEdit && db.currentUser?.role === 'rm';
+  const remarksOnly = isEdit && isCanRM();
   setDisabled(['m-name','m-can','m-pan','m-dob','m-kyc','m-nominee','m-mobile','m-email','m-bank','m-accno','m-ifsc','m-payeezz','m-payamt','m-paydate'], remarksOnly);
   setDisabled(['m-pan-clear', 'm-accno-clear'], remarksOnly);
 }
@@ -1280,6 +1511,588 @@ function setSensitiveClearControls(isEdit, member = {}) {
 }
 
 // =====================================================================
+// TRANSACTION PROCESSING MODULE
+// =====================================================================
+const TRANSACTION_STORAGE_KEY = 'mfu_client_crm_demo_v1';
+const TRANSACTION_TYPES = [
+  'Purchase', 'Redemption', 'Switch In', 'Switch Out',
+  'SIP Registration', 'SIP Cancellation',
+  'STP Registration', 'STP Cancellation',
+  'SWP Registration', 'SWP Cancellation',
+];
+const TRANSACTION_STATUSES = ['Pending', 'Submitted', 'Processed', 'Rejected'];
+const TRANSACTION_COLUMNS = [
+  { key: 'transactionDate', label: 'Txn Date', type: 'date' },
+  { key: 'client', label: 'Client Name' },
+  { key: 'folio', label: 'Folio No.', mono: true },
+  { key: 'amc', label: 'AMC' },
+  { key: 'scheme', label: 'Scheme Name' },
+  { key: 'type', label: 'Transaction Type' },
+  { key: 'amount', label: 'Amount', currency: true },
+  { key: 'units', label: 'Units', number: true },
+  { key: 'status', label: 'Status', badge: true },
+  { key: 'submissionDate', label: 'Submission Date', type: 'date' },
+  { key: 'expectedDate', label: 'Expected Completion', type: 'date' },
+  { key: 'actualDate', label: 'Actual Completion', type: 'date' },
+  { key: 'employee', label: 'Assigned To' },
+  { key: 'arn', label: 'ARN', mono: true },
+  { key: 'euin', label: 'EUIN', mono: true },
+  { key: 'notes', label: 'Remarks' },
+];
+
+function transactionTodayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function transactionISOOffset(days) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function transactionUid() {
+  return 'TXN-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+function transactionSeedData() {
+  return [
+    {
+      id: 'TXN-SAMPLE-001',
+      transactionDate: transactionTodayISO(),
+      client: 'Mehta Family Office',
+      folio: '1088293/42',
+      amc: 'HDFC Mutual Fund',
+      scheme: 'HDFC Balanced Advantage Fund',
+      type: 'Purchase',
+      amount: 250000,
+      units: 0,
+      status: 'Pending',
+      submissionDate: transactionTodayISO(),
+      expectedDate: transactionISOOffset(2),
+      actualDate: '',
+      employee: 'Nisha Shah',
+      arn: 'ARN-118205',
+      euin: 'E123456',
+      notes: 'Awaiting final document check',
+    },
+    {
+      id: 'TXN-SAMPLE-002',
+      transactionDate: transactionISOOffset(-1),
+      client: 'Rao Holdings',
+      folio: '4492101/11',
+      amc: 'ICICI Prudential MF',
+      scheme: 'ICICI Prudential Bluechip Fund',
+      type: 'SIP Registration',
+      amount: 50000,
+      units: 0,
+      status: 'Submitted',
+      submissionDate: transactionISOOffset(-1),
+      expectedDate: transactionISOOffset(1),
+      actualDate: '',
+      employee: 'Arjun Menon',
+      arn: 'ARN-118205',
+      euin: 'E221904',
+      notes: 'Mandate submitted through aggregator',
+    },
+    {
+      id: 'TXN-SAMPLE-003',
+      transactionDate: transactionISOOffset(-2),
+      client: 'Kothari Trust',
+      folio: '7781009/07',
+      amc: 'SBI Mutual Fund',
+      scheme: 'SBI Magnum Income Fund',
+      type: 'Redemption',
+      amount: 175000,
+      units: 432.5512,
+      status: 'Processed',
+      submissionDate: transactionISOOffset(-2),
+      expectedDate: transactionTodayISO(),
+      actualDate: transactionTodayISO(),
+      employee: 'Nisha Shah',
+      arn: 'ARN-118205',
+      euin: 'E123456',
+      notes: 'Processed and confirmation sent',
+    },
+    {
+      id: 'TXN-SAMPLE-004',
+      transactionDate: transactionISOOffset(-4),
+      client: 'Desai Family',
+      folio: '6621800/18',
+      amc: 'Axis Mutual Fund',
+      scheme: 'Axis Midcap Fund',
+      type: 'Switch Out',
+      amount: 125000,
+      units: 315.1884,
+      status: 'Rejected',
+      submissionDate: transactionISOOffset(-4),
+      expectedDate: transactionISOOffset(-2),
+      actualDate: transactionISOOffset(-1),
+      employee: 'Priya Sharma',
+      arn: 'ARN-118205',
+      euin: 'E771002',
+      notes: 'Rejected by RTA: signature mismatch',
+    },
+    {
+      id: 'TXN-SAMPLE-005',
+      transactionDate: transactionISOOffset(3),
+      client: 'Kapoor Advisory',
+      folio: '9922104/09',
+      amc: 'Mirae Asset MF',
+      scheme: 'Mirae Asset Large Cap Fund',
+      type: 'SIP Registration',
+      amount: 30000,
+      units: 0,
+      status: 'Pending',
+      submissionDate: '',
+      expectedDate: transactionISOOffset(4),
+      actualDate: '',
+      employee: 'Arjun Menon',
+      arn: 'ARN-118205',
+      euin: 'E221904',
+      notes: 'SIP start request scheduled',
+    },
+    {
+      id: 'TXN-SAMPLE-006',
+      transactionDate: transactionTodayISO(),
+      client: 'Bajaj Capital Partners',
+      folio: '3380210/31',
+      amc: 'Kotak Mutual Fund',
+      scheme: 'Kotak Equity Opportunities Fund',
+      type: 'Purchase',
+      amount: 400000,
+      units: 0,
+      status: 'Submitted',
+      submissionDate: transactionTodayISO(),
+      expectedDate: transactionISOOffset(-1),
+      actualDate: '',
+      employee: 'Priya Sharma',
+      arn: 'ARN-118205',
+      euin: 'E771002',
+      notes: 'RTA confirmation pending',
+    },
+  ];
+}
+
+function normalizeTransaction(record) {
+  return {
+    id: record.id || transactionUid(),
+    transactionDate: record.transactionDate || transactionTodayISO(),
+    client: record.client || '',
+    folio: record.folio || '',
+    amc: record.amc || '',
+    scheme: record.scheme || '',
+    type: TRANSACTION_TYPES.includes(record.type) ? record.type : 'Purchase',
+    amount: Number(record.amount) || 0,
+    units: Number(record.units) || 0,
+    status: TRANSACTION_STATUSES.includes(record.status) ? record.status : 'Pending',
+    submissionDate: record.submissionDate || '',
+    expectedDate: record.expectedDate || '',
+    actualDate: record.actualDate || '',
+    employee: record.employee || '',
+    arn: record.arn || '',
+    euin: record.euin || '',
+    notes: record.notes || '',
+  };
+}
+
+// Future transaction microservice handoff:
+// Replace this local adapter with GET/POST/PATCH/DELETE /api/v1/crm/transactions
+// and GET /api/v1/crm/summary. The payload shape mirrors
+// TRANSACTION_COLUMNS plus id, so the UI should not need workflow changes.
+const transactionApi = {
+  readStored() {
+    try {
+      const raw = localStorage.getItem(TRANSACTION_STORAGE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.map(normalizeTransaction) : null;
+    } catch (_) {
+      return null;
+    }
+  },
+  writeStored(records) {
+    try {
+      localStorage.setItem(TRANSACTION_STORAGE_KEY, JSON.stringify(records.map(normalizeTransaction)));
+    } catch (_) {
+      showToast('Transaction changes are available for this browser session only.');
+    }
+  },
+  async list() {
+    const stored = this.readStored();
+    if (stored) return stored;
+    const seed = transactionSeedData().map(normalizeTransaction);
+    this.writeStored(seed);
+    return seed;
+  },
+  async create(payload) {
+    const records = await this.list();
+    const saved = normalizeTransaction({ ...payload, id: transactionUid() });
+    records.push(saved);
+    this.writeStored(records);
+    return saved;
+  },
+  async update(id, payload) {
+    const records = await this.list();
+    const index = records.findIndex(record => record.id === id);
+    if (index === -1) throw new Error('Transaction not found.');
+    const saved = normalizeTransaction({ ...records[index], ...payload, id });
+    records[index] = saved;
+    this.writeStored(records);
+    return saved;
+  },
+  async delete(id) {
+    const records = await this.list();
+    this.writeStored(records.filter(record => record.id !== id));
+  },
+  async replaceWithSamples() {
+    const seed = transactionSeedData().map(normalizeTransaction);
+    this.writeStored(seed);
+    return seed;
+  },
+};
+
+function formatINR(value) {
+  const amount = Number(value) || 0;
+  return '₹' + amount.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+}
+
+function formatTxnNumber(value) {
+  const number = Number(value) || 0;
+  return number ? number.toLocaleString('en-IN', { maximumFractionDigits: 4 }) : '-';
+}
+
+function isTransactionOverdue(transaction) {
+  if (transaction.status === 'Processed' || transaction.status === 'Rejected') return false;
+  return Boolean(transaction.expectedDate) && transaction.expectedDate < transactionTodayISO();
+}
+
+function transactionStatusBadge(status) {
+  const cls = status === 'Processed' ? 'badge-green'
+    : status === 'Submitted' ? 'badge-blue'
+    : status === 'Rejected' ? 'badge-red'
+    : 'badge-yellow';
+  return `<span class="badge ${cls}">${escapeHTML(status || 'Pending')}</span>`;
+}
+
+function transactionOptionHTML(values) {
+  return values.map(value => `<option value="${escapeHTML(value)}">${escapeHTML(value)}</option>`).join('');
+}
+
+function populateTransactionFormOptions() {
+  const typeEl = document.getElementById('txn-type');
+  const statusEl = document.getElementById('txn-status');
+  if (typeEl) typeEl.innerHTML = transactionOptionHTML(TRANSACTION_TYPES);
+  if (statusEl) statusEl.innerHTML = transactionOptionHTML(TRANSACTION_STATUSES);
+}
+
+function setTransactionFilterOptions(id, values, label) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const current = el.value;
+  el.innerHTML = `<option value="">${escapeHTML(label)}</option>` + values.map(value => `<option value="${escapeHTML(value)}">${escapeHTML(value)}</option>`).join('');
+  el.value = values.includes(current) ? current : '';
+}
+
+function populateTransactionFilters() {
+  const clients = [...new Set(db.transactions.map(t => t.client).filter(Boolean))].sort();
+  const amcs = [...new Set(db.transactions.map(t => t.amc).filter(Boolean))].sort();
+  const employees = [...new Set(db.transactions.map(t => t.employee).filter(Boolean))].sort();
+  setTransactionFilterOptions('txn-filter-client', clients, 'All clients');
+  setTransactionFilterOptions('txn-filter-amc', amcs, 'All AMCs');
+  setTransactionFilterOptions('txn-filter-type', TRANSACTION_TYPES, 'All transaction types');
+  setTransactionFilterOptions('txn-filter-employee', employees, 'All employees');
+}
+
+async function loadTransactions(force = false) {
+  if (!force && db.transactionsLoaded) return;
+  db.transactions = await transactionApi.list();
+  db.transactionsLoaded = true;
+}
+
+function currentTransactionMonthKey() {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function isTransactionThisMonth(dateString) {
+  return Boolean(dateString) && dateString.slice(0, 7) === currentTransactionMonthKey();
+}
+
+function renderTransactionKPIs() {
+  const today = transactionTodayISO();
+  const pending = db.transactions.filter(t => t.status === 'Pending' || t.status === 'Submitted').length;
+  const processedToday = db.transactions.filter(t => t.status === 'Processed' && t.actualDate === today).length;
+  const rejected = db.transactions.filter(t => t.status === 'Rejected').length;
+  const upcomingSips = db.transactions.filter(t => t.type === 'SIP Registration' && ['Pending', 'Submitted'].includes(t.status)).length;
+  document.getElementById('txn-kpi-row').innerHTML = [
+    { cls: 'yellow', value: pending, label: 'Pending Transactions', sub: 'Pending or submitted', view: 'pending' },
+    { cls: 'green', value: processedToday, label: 'Processed Today', sub: 'Actual completion today', view: 'today' },
+    { cls: 'red', value: rejected, label: 'Rejected', sub: 'Needs correction', view: 'rejected' },
+    { cls: 'blue', value: upcomingSips, label: 'Upcoming SIPs', sub: 'Open SIP registrations', view: 'sip' },
+  ].map(kpi => `
+    <div class="kpi-card ${kpi.cls}" onclick="setTransactionView('${kpi.view}')" style="cursor:pointer;">
+      <div class="kpi-label">${kpi.label}</div>
+      <div class="kpi-val">${kpi.value}</div>
+      <div class="kpi-sub">${kpi.sub}</div>
+    </div>
+  `).join('');
+}
+
+function renderTransactionSummary() {
+  const monthTransactions = db.transactions.filter(t => isTransactionThisMonth(t.transactionDate));
+  const totalPurchase = monthTransactions.filter(t => t.type === 'Purchase').reduce((sum, t) => sum + t.amount, 0);
+  const totalRedemption = monthTransactions.filter(t => t.type === 'Redemption').reduce((sum, t) => sum + t.amount, 0);
+  const netPurchase = totalPurchase - totalRedemption;
+  const sipStart = monthTransactions.filter(t => t.type === 'SIP Registration').reduce((sum, t) => sum + t.amount, 0);
+  const sipStop = monthTransactions.filter(t => t.type === 'SIP Cancellation').reduce((sum, t) => sum + t.amount, 0);
+  const netSip = sipStart - sipStop;
+  const sipStartCount = monthTransactions.filter(t => t.type === 'SIP Registration').length;
+  const sipStopCount = monthTransactions.filter(t => t.type === 'SIP Cancellation').length;
+
+  document.getElementById('txn-summary-row').innerHTML = `
+    <div class="txn-summary-card">
+      <div class="txn-summary-title">Purchase Summary - This Month</div>
+      <div class="txn-summary-stats">
+        <div><div class="txn-summary-val positive">${formatINR(totalPurchase)}</div><div class="txn-summary-label">Total purchases</div></div>
+        <div><div class="txn-summary-val negative">${formatINR(totalRedemption)}</div><div class="txn-summary-label">Total redemptions</div></div>
+        <div><div class="txn-summary-val ${netPurchase >= 0 ? 'positive' : 'negative'}">${formatINR(netPurchase)}</div><div class="txn-summary-label">Net purchase</div></div>
+      </div>
+    </div>
+    <div class="txn-summary-card">
+      <div class="txn-summary-title">SIP Summary - This Month</div>
+      <div class="txn-summary-stats">
+        <div><div class="txn-summary-val positive">${formatINR(sipStart)}</div><div class="txn-summary-label">SIP starts (${sipStartCount})</div></div>
+        <div><div class="txn-summary-val negative">${formatINR(sipStop)}</div><div class="txn-summary-label">SIP stops (${sipStopCount})</div></div>
+        <div><div class="txn-summary-val ${netSip >= 0 ? 'positive' : 'negative'}">${formatINR(netSip)}</div><div class="txn-summary-label">Net SIP</div></div>
+      </div>
+    </div>
+  `;
+}
+
+function setTransactionView(view) {
+  db.transactionView = view;
+  document.querySelectorAll('.txn-view-tab').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.txnView === view);
+  });
+  renderTransactionTable();
+}
+
+function getFilteredTransactions() {
+  const search = (document.getElementById('txn-search')?.value || '').trim().toLowerCase();
+  const client = document.getElementById('txn-filter-client')?.value || '';
+  const amc = document.getElementById('txn-filter-amc')?.value || '';
+  const type = document.getElementById('txn-filter-type')?.value || '';
+  const employee = document.getElementById('txn-filter-employee')?.value || '';
+  const from = document.getElementById('txn-date-from')?.value || '';
+  const to = document.getElementById('txn-date-to')?.value || '';
+  const today = transactionTodayISO();
+
+  return [...db.transactions].filter(transaction => {
+    if (search) {
+      const haystack = [
+        transaction.client, transaction.folio, transaction.amc, transaction.scheme,
+        transaction.arn, transaction.euin, transaction.notes, transaction.employee,
+      ].join(' ').toLowerCase();
+      if (!haystack.includes(search)) return false;
+    }
+    if (client && transaction.client !== client) return false;
+    if (amc && transaction.amc !== amc) return false;
+    if (type && transaction.type !== type) return false;
+    if (employee && transaction.employee !== employee) return false;
+    if (from && (transaction.transactionDate || '') < from) return false;
+    if (to && (transaction.transactionDate || '') > to) return false;
+    if (db.transactionView === 'pending' && !['Pending', 'Submitted'].includes(transaction.status)) return false;
+    if (db.transactionView === 'today' && transaction.transactionDate !== today && transaction.actualDate !== today) return false;
+    if (db.transactionView === 'rejected' && transaction.status !== 'Rejected') return false;
+    if (db.transactionView === 'purchase' && !['Purchase', 'Redemption'].includes(transaction.type)) return false;
+    if (db.transactionView === 'sip' && !['SIP Registration', 'SIP Cancellation'].includes(transaction.type)) return false;
+    return true;
+  }).sort((a, b) => (b.transactionDate || '').localeCompare(a.transactionDate || ''));
+}
+
+function renderTransactionTableHead(employeeGroup) {
+  const head = document.getElementById('txn-table-head');
+  const columns = employeeGroup
+    ? [{ key: 'employee', label: 'Assigned To' }, ...TRANSACTION_COLUMNS.filter(column => column.key !== 'employee')]
+    : TRANSACTION_COLUMNS;
+  head.innerHTML = columns.map(column => `<th>${column.label}</th>`).join('');
+}
+
+function transactionCellHTML(transaction, column) {
+  const value = transaction[column.key];
+  if (column.type === 'date') return `<td>${escapeHTML(formatDate(value))}</td>`;
+  if (column.currency) return `<td>${value ? formatINR(value) : '-'}</td>`;
+  if (column.number) return `<td>${formatTxnNumber(value)}</td>`;
+  if (column.badge) {
+    let html = transactionStatusBadge(value);
+    if (isTransactionOverdue(transaction)) html += '<span class="badge badge-red txn-overdue">Overdue</span>';
+    return `<td>${html}</td>`;
+  }
+  if (column.mono) return `<td class="txn-mono">${escapeHTML(value || '-')}</td>`;
+  return `<td>${escapeHTML(value || '-')}</td>`;
+}
+
+function renderTransactionRow(transaction, employeeGroup) {
+  const columns = employeeGroup
+    ? [{ key: 'employee', label: 'Assigned To' }, ...TRANSACTION_COLUMNS.filter(column => column.key !== 'employee')]
+    : TRANSACTION_COLUMNS;
+  return `<tr class="clickable" onclick="openTransactionModal('${escapeHTML(transaction.id)}')">${columns.map(column => transactionCellHTML(transaction, column)).join('')}</tr>`;
+}
+
+function renderTransactionTable() {
+  const titleMap = {
+    all: 'All Transactions',
+    purchase: 'Purchase Tracker',
+    sip: 'SIP Tracker',
+    pending: 'Pending Transactions',
+    today: 'Today\'s Transactions',
+    rejected: 'Rejected Transactions',
+    employee: 'Employee-wise Transactions',
+  };
+  const employeeGroup = db.transactionView === 'employee';
+  const filtered = getFilteredTransactions();
+  const body = document.getElementById('txn-table-body');
+  document.getElementById('txn-table-title').textContent = titleMap[db.transactionView] || 'Transactions';
+  renderTransactionTableHead(employeeGroup);
+
+  if (!filtered.length) {
+    body.innerHTML = `<tr class="txn-empty"><td colspan="${TRANSACTION_COLUMNS.length}"><div class="txn-empty-title">No transactions found</div><div>Change the current filters or log a new transaction.</div></td></tr>`;
+    return;
+  }
+
+  const rows = employeeGroup
+    ? filtered.sort((a, b) => (a.employee || '').localeCompare(b.employee || '') || (b.transactionDate || '').localeCompare(a.transactionDate || ''))
+    : filtered;
+  body.innerHTML = rows.map(transaction => renderTransactionRow(transaction, employeeGroup)).join('');
+}
+
+async function renderTransactionsPage() {
+  try {
+    await loadTransactions();
+    populateTransactionFormOptions();
+    populateTransactionFilters();
+    renderTransactionKPIs();
+    renderTransactionSummary();
+    renderTransactionTable();
+  } catch (error) {
+    document.getElementById('txn-table-body').innerHTML = `<tr class="txn-empty"><td colspan="${TRANSACTION_COLUMNS.length}">${escapeHTML(friendlyError(error))}</td></tr>`;
+  }
+}
+
+function clearTransactionFilters() {
+  ['txn-search', 'txn-filter-client', 'txn-filter-amc', 'txn-filter-type', 'txn-filter-employee', 'txn-date-from', 'txn-date-to'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  renderTransactionTable();
+}
+
+function transactionFormPayload() {
+  const client = document.getElementById('txn-client').value.trim();
+  if (!client) throw new Error('Client name is required.');
+  return {
+    transactionDate: document.getElementById('txn-date').value || transactionTodayISO(),
+    client,
+    folio: document.getElementById('txn-folio').value.trim(),
+    amc: document.getElementById('txn-amc').value.trim(),
+    scheme: document.getElementById('txn-scheme').value.trim(),
+    type: document.getElementById('txn-type').value || 'Purchase',
+    amount: parseFloat(document.getElementById('txn-amount').value) || 0,
+    units: parseFloat(document.getElementById('txn-units').value) || 0,
+    status: document.getElementById('txn-status').value || 'Pending',
+    submissionDate: document.getElementById('txn-submission-date').value,
+    expectedDate: document.getElementById('txn-expected-date').value,
+    actualDate: document.getElementById('txn-actual-date').value,
+    employee: document.getElementById('txn-employee').value.trim(),
+    arn: document.getElementById('txn-arn').value.trim(),
+    euin: document.getElementById('txn-euin').value.trim(),
+    notes: document.getElementById('txn-notes').value.trim(),
+  };
+}
+
+function setTransactionForm(transaction = {}) {
+  document.getElementById('txn-date').value = transaction.transactionDate || transactionTodayISO();
+  document.getElementById('txn-client').value = transaction.client || '';
+  document.getElementById('txn-folio').value = transaction.folio || '';
+  document.getElementById('txn-amc').value = transaction.amc || '';
+  document.getElementById('txn-scheme').value = transaction.scheme || '';
+  document.getElementById('txn-type').value = transaction.type || 'Purchase';
+  document.getElementById('txn-amount').value = transaction.amount || '';
+  document.getElementById('txn-units').value = transaction.units || '';
+  document.getElementById('txn-status').value = transaction.status || 'Pending';
+  document.getElementById('txn-submission-date').value = transaction.submissionDate || transactionTodayISO();
+  document.getElementById('txn-expected-date').value = transaction.expectedDate || '';
+  document.getElementById('txn-actual-date').value = transaction.actualDate || '';
+  document.getElementById('txn-employee').value = transaction.employee || '';
+  document.getElementById('txn-arn').value = transaction.arn || '';
+  document.getElementById('txn-euin').value = transaction.euin || '';
+  document.getElementById('txn-notes').value = transaction.notes || '';
+}
+
+function openTransactionModal(transactionId = null) {
+  populateTransactionFormOptions();
+  db.editTransactionId = transactionId;
+  const transaction = transactionId ? db.transactions.find(candidate => candidate.id === transactionId) : null;
+  if (transactionId && !transaction) {
+    showToast('Transaction not found.');
+    return;
+  }
+  document.getElementById('txn-modal-title').textContent = transaction ? 'Edit Transaction' : 'Log Transaction';
+  document.getElementById('txn-delete-button').style.display = transaction ? '' : 'none';
+  setTransactionForm(transaction || {});
+  openModal('transaction-modal');
+  setTimeout(() => document.getElementById('txn-client')?.focus(), 50);
+}
+
+function closeTransactionModal() {
+  closeModal('transaction-modal');
+  db.editTransactionId = null;
+}
+
+async function saveTransaction() {
+  try {
+    const payload = transactionFormPayload();
+    if (db.editTransactionId) {
+      await transactionApi.update(db.editTransactionId, payload);
+      showToast('Transaction updated.');
+    } else {
+      await transactionApi.create(payload);
+      showToast('Transaction logged.');
+    }
+    db.transactionsLoaded = false;
+    closeTransactionModal();
+    await renderTransactionsPage();
+  } catch (error) {
+    showToast(friendlyError(error));
+  }
+}
+
+async function deleteCurrentTransaction() {
+  if (!db.editTransactionId) return;
+  if (!confirm('Delete this transaction record?')) return;
+  try {
+    await transactionApi.delete(db.editTransactionId);
+    db.transactionsLoaded = false;
+    closeTransactionModal();
+    showToast('Transaction deleted.');
+    await renderTransactionsPage();
+  } catch (error) {
+    showToast(friendlyError(error));
+  }
+}
+
+async function resetTransactionDemoData() {
+  if (!confirm('Reset transaction sample data?')) return;
+  db.transactions = await transactionApi.replaceWithSamples();
+  db.transactionsLoaded = true;
+  clearTransactionFilters();
+  renderTransactionKPIs();
+  renderTransactionSummary();
+  renderTransactionTable();
+  showToast('Transaction sample data reset.');
+}
+
+// =====================================================================
 // NAVIGATION
 // =====================================================================
 function navigate(page) {
@@ -1290,14 +2103,26 @@ function navigate(page) {
   const pageEl = document.getElementById('page-' + page);
   if (pageEl) pageEl.classList.add('active');
 
-  const navMap = { dashboard:'dashboard', families:'families', 'family-detail':'families', kyc:'kyc', payeezz:'payeezz', contact:'contact', tasks:'tasks', reports:'reports', 'admin-users':'admin-users' };
+  const navMap = { dashboard:'dashboard', families:'families', 'family-detail':'families', kyc:'kyc', payeezz:'payeezz', contact:'contact', tasks:'tasks', transactions:'transactions', reports:'reports', 'admin-users':'admin-users' };
   document.querySelectorAll('.sb-item').forEach(i => {
     if (i.getAttribute('onclick') && i.getAttribute('onclick').includes("'"+page+"'")) i.classList.add('active');
     if (navMap[page] && i.getAttribute('onclick') && i.getAttribute('onclick').includes("'"+navMap[page]+"'")) i.classList.add('active');
   });
 
-  const titles = { dashboard:'Dashboard', families:'Client Families', 'family-detail':'Family Detail', kyc:'KYC Status', payeezz:'PayEezz Status', contact:'Contact Verification', tasks:'Pending Tasks', reports:'Reports', 'admin-users':'User Management' };
+  const titles = { dashboard:'Dashboard', families:'Client Families', 'family-detail':'Family Detail', kyc:'KYC Status', payeezz:'PayEezz Status', contact:'Contact Verification', tasks:'Pending Tasks', transactions:'Client CRM', reports:'Reports', 'admin-users':'User Management' };
   document.getElementById('tb-title').textContent = titles[page] || page;
+
+  const transactionPage = page === 'transactions';
+  const globalSearch = document.getElementById('global-search');
+  if (globalSearch) {
+    globalSearch.disabled = transactionPage;
+    globalSearch.value = transactionPage ? '' : globalSearch.value;
+    globalSearch.placeholder = transactionPage ? 'Use transaction filters below...' : 'Search family, member, PAN, CAN…';
+  }
+  const exportButton = document.getElementById('top-export-button');
+  if (exportButton) exportButton.style.display = transactionPage ? 'none' : '';
+  const addFamilyButton = document.getElementById('top-add-family-button');
+  if (addFamilyButton) addFamilyButton.style.display = transactionPage ? 'none' : (canCreateFamily() ? '' : 'none');
 
   // Render page
   if (page === 'dashboard') void renderDashboard();
@@ -1306,6 +2131,7 @@ function navigate(page) {
   else if (page === 'payeezz') void renderPayPage();
   else if (page === 'contact') void renderContactPage();
   else if (page === 'tasks') void renderTasksPage();
+  else if (page === 'transactions') void renderTransactionsPage();
   else if (page === 'admin-users') void renderAdminUsers();
 }
 
@@ -1446,7 +2272,7 @@ function populateRMFilter() {
   const el = document.getElementById('rm-filter');
   if (!el) return;
   const cur = el.value;
-  if (db.currentUser?.role === 'rm') {
+  if (isCanRM()) {
     el.innerHTML = `<option value="">${safeText(userLabel(db.currentUser))}</option>`;
     el.disabled = true;
     return;
@@ -1915,6 +2741,42 @@ const USER_ROLE_LABELS = {
   management: 'Management',
 };
 
+const MODULE_ROLE_LABELS = {
+  can_admin: 'CAN Admin',
+  can_ops: 'CAN Ops',
+  can_rm: 'CAN RM',
+  can_management: 'CAN Management',
+  crm_admin: 'CRM Admin',
+  crm_ops: 'CRM Ops',
+  crm_relationship_manager: 'Relationship Manager',
+  crm_viewer: 'CRM Viewer',
+};
+
+const MODULE_ROLE_BADGES = {
+  can_admin: 'badge-red',
+  can_ops: 'badge-blue',
+  can_rm: 'badge-green',
+  can_management: 'badge-yellow',
+  crm_admin: 'badge-red',
+  crm_ops: 'badge-blue',
+  crm_relationship_manager: 'badge-yellow',
+  crm_viewer: 'badge-green',
+};
+
+const CAN_ROLE_TO_USER_ROLE = {
+  can_admin: 'admin',
+  can_ops: 'ops',
+  can_rm: 'rm',
+  can_management: 'management',
+};
+
+const LEGACY_USER_ROLE_TO_CAN_ROLE = {
+  admin: 'can_admin',
+  ops: 'can_ops',
+  rm: 'can_rm',
+  management: 'can_management',
+};
+
 function userRoleBadge(role) {
   const badgeClass = role === 'admin' ? 'badge-red' : role === 'ops' ? 'badge-blue' : role === 'rm' ? 'badge-green' : 'badge-yellow';
   return `<span class="badge ${badgeClass}">${safeText(USER_ROLE_LABELS[role] || role)}</span>`;
@@ -1922,6 +2784,85 @@ function userRoleBadge(role) {
 
 function userStatusBadge(isActive) {
   return isActive ? '<span class="badge badge-green">Active</span>' : '<span class="badge badge-red">Inactive</span>';
+}
+
+function userModuleMemberships(user) {
+  const memberships = Array.isArray(user?.memberships) ? user.memberships.filter(m => m.is_active !== false) : [];
+  if (memberships.length) return memberships;
+  const legacyRole = LEGACY_USER_ROLE_TO_CAN_ROLE[user?.role];
+  return legacyRole ? [{ module_code: 'can_compliance', role: legacyRole, is_active: true }] : [];
+}
+
+function moduleRoleForUser(user, moduleCode) {
+  return userModuleMemberships(user).find(m => m.module_code === moduleCode)?.role || '';
+}
+
+function moduleRoleBadge(role) {
+  if (!role) return '';
+  const badgeClass = MODULE_ROLE_BADGES[role] || 'badge-blue';
+  return `<span class="badge ${badgeClass}">${safeText(MODULE_ROLE_LABELS[role] || role)}</span>`;
+}
+
+function userAccessBadges(user) {
+  const badges = userModuleMemberships(user).map(m => moduleRoleBadge(m.role)).filter(Boolean);
+  return badges.length ? badges.join(' ') : '<span class="badge badge-yellow">No module</span>';
+}
+
+function userSearchText(user) {
+  const access = userModuleMemberships(user).map(m => MODULE_ROLE_LABELS[m.role] || m.role).join(' ');
+  return [user.name, user.email, user.role, access].join(' ').toLowerCase();
+}
+
+function canAdministerUserModule(moduleCode) {
+  if (isPlatformAdmin()) return true;
+  if (moduleCode === 'can_compliance') return hasModuleRole('can_compliance', 'can_admin');
+  if (moduleCode === 'client_crm') return hasModuleRole('client_crm', 'crm_admin');
+  return false;
+}
+
+function setUserGlobalFieldsDisabled(disabled) {
+  ['u-name', 'u-email', 'u-role', 'u-active', 'u-password'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = disabled;
+  });
+}
+
+function configureUserModuleAccessControls(isSelf = false) {
+  [
+    { moduleCode: 'can_compliance', wrapId: 'u-can-role-wrap', selectId: 'u-can-role' },
+    { moduleCode: 'client_crm', wrapId: 'u-txn-role-wrap', selectId: 'u-txn-role' },
+  ].forEach(({ moduleCode, wrapId, selectId }) => {
+    const wrap = document.getElementById(wrapId);
+    const select = document.getElementById(selectId);
+    const canManage = canAdministerUserModule(moduleCode);
+    if (wrap) wrap.style.display = canManage ? '' : 'none';
+    if (select) select.disabled = !canManage || isSelf;
+  });
+}
+
+function syncPrimaryRoleFromModuleAccess() {
+  const roleSelect = document.getElementById('u-role');
+  const canRole = document.getElementById('u-can-role')?.value || '';
+  const txnRole = document.getElementById('u-txn-role')?.value || '';
+  if (!roleSelect || roleSelect.disabled) return;
+  if (canRole && CAN_ROLE_TO_USER_ROLE[canRole]) {
+    roleSelect.value = CAN_ROLE_TO_USER_ROLE[canRole];
+  } else if (txnRole && roleSelect.value === 'rm') {
+    roleSelect.value = 'management';
+  }
+}
+
+function userModuleMembershipPayload(isActive) {
+  const memberships = [];
+  if (canAdministerUserModule('can_compliance')) {
+    const role = document.getElementById('u-can-role')?.value || '';
+    if (role) memberships.push({ module_code: 'can_compliance', role, is_active: isActive });
+  }
+  if (canAdministerUserModule('client_crm')) {
+    const role = document.getElementById('u-txn-role')?.value || '';
+    if (role) memberships.push({ module_code: 'client_crm', role, is_active: isActive });
+  }
+  return memberships;
 }
 
 function filteredAdminUsers() {
@@ -1933,7 +2874,7 @@ function filteredAdminUsers() {
     if (status === 'active' && !user.is_active) return false;
     if (status === 'inactive' && user.is_active) return false;
     if (!query) return true;
-    return [user.name, user.email, user.role].join(' ').toLowerCase().includes(query);
+    return userSearchText(user).includes(query);
   });
 }
 
@@ -1960,11 +2901,12 @@ function renderAdminUserRows() {
       <td><strong>${safeText(user.name)}</strong></td>
       <td>${safeText(user.email)}</td>
       <td>${userRoleBadge(user.role)}</td>
+      <td>${userAccessBadges(user)}</td>
       <td>${userStatusBadge(user.is_active)}</td>
       <td>${formatDate(user.last_login_at)}</td>
       <td>${formatDate(user.updated_at)}</td>
       <td>${adminUserActionsHTML(user)}</td>
-    </tr>`).join('') || emptyRow(7, 'No users match the current filters.');
+    </tr>`).join('') || emptyRow(8, 'No users match the current filters.');
 }
 
 async function renderAdminUsers() {
@@ -1973,10 +2915,10 @@ async function renderAdminUsers() {
   if (!canManageUsers()) {
     db.users = [];
     document.getElementById('admin-users-title').textContent = 'Admin access required';
-    body.innerHTML = emptyRow(7, 'Your role is not allowed to manage users.');
+    body.innerHTML = emptyRow(8, 'Your role is not allowed to manage users.');
     return;
   }
-  body.innerHTML = tableLoading(7, 'Loading users...');
+  body.innerHTML = tableLoading(8, 'Loading users...');
   try {
     db.users = await api.get('/users', { include_inactive: true });
     renderAdminUserRows();
@@ -1994,16 +2936,19 @@ function openAddUser() {
   if (!canManageUsers()) { showToast('Your role is not allowed to manage users.'); return; }
   db.editUserId = null;
   document.getElementById('user-modal-title').textContent = 'Add User';
+  setUserGlobalFieldsDisabled(false);
+  configureUserModuleAccessControls(false);
   document.getElementById('u-name').value = '';
   document.getElementById('u-email').value = '';
-  document.getElementById('u-role').value = 'rm';
-  document.getElementById('u-role').disabled = false;
+  document.getElementById('u-can-role').value = canAdministerUserModule('can_compliance') ? 'can_rm' : '';
+  document.getElementById('u-txn-role').value = canAdministerUserModule('client_crm') && !document.getElementById('u-can-role').value ? 'crm_viewer' : '';
+  document.getElementById('u-role').value = document.getElementById('u-can-role').value ? 'rm' : 'management';
   document.getElementById('u-active').value = 'true';
-  document.getElementById('u-active').disabled = false;
   document.getElementById('u-password').value = '';
   document.getElementById('u-password-label').textContent = 'Password *';
   document.getElementById('u-password-help').textContent = 'Set the initial password for this user.';
   document.getElementById('u-self-note').textContent = '';
+  syncPrimaryRoleFromModuleAccess();
   openModal('user-modal');
 }
 
@@ -2014,16 +2959,19 @@ function openEditUser(userId) {
   const isSelf = user.id === db.currentUser?.id;
   db.editUserId = user.id;
   document.getElementById('user-modal-title').textContent = 'Edit User';
+  setUserGlobalFieldsDisabled(isSelf || !isPlatformAdmin());
+  configureUserModuleAccessControls(isSelf);
   document.getElementById('u-name').value = user.name || '';
   document.getElementById('u-email').value = user.email || '';
   document.getElementById('u-role').value = user.role || 'rm';
-  document.getElementById('u-role').disabled = isSelf;
+  document.getElementById('u-can-role').value = moduleRoleForUser(user, 'can_compliance');
+  document.getElementById('u-txn-role').value = moduleRoleForUser(user, 'client_crm');
   document.getElementById('u-active').value = user.is_active ? 'true' : 'false';
-  document.getElementById('u-active').disabled = isSelf;
   document.getElementById('u-password').value = '';
   document.getElementById('u-password-label').textContent = 'Reset password';
-  document.getElementById('u-password-help').textContent = 'Leave blank to keep the current password.';
-  document.getElementById('u-self-note').textContent = isSelf ? 'You cannot remove your own admin role or deactivate your own account.' : '';
+  document.getElementById('u-password-help').textContent = isPlatformAdmin() ? 'Leave blank to keep the current password.' : 'Module admins can update module access only.';
+  document.getElementById('u-self-note').textContent = isSelf ? 'You cannot remove your own admin access or deactivate your own account.' : '';
+  syncPrimaryRoleFromModuleAccess();
   openModal('user-modal');
 }
 
@@ -2033,8 +2981,24 @@ function buildUserPayload(isEdit) {
   const role = document.getElementById('u-role').value;
   const isActive = document.getElementById('u-active').value === 'true';
   const password = document.getElementById('u-password').value;
+  const memberships = userModuleMembershipPayload(isActive);
+  const canManageModuleAccess = canAdministerUserModule('can_compliance') || canAdministerUserModule('client_crm');
+  const canRole = document.getElementById('u-can-role')?.value || '';
+  const txnRole = document.getElementById('u-txn-role')?.value || '';
+  const effectiveRole = canRole && CAN_ROLE_TO_USER_ROLE[canRole]
+    ? CAN_ROLE_TO_USER_ROLE[canRole]
+    : txnRole && role === 'rm'
+      ? 'management'
+      : role;
+  if (isEdit && !isPlatformAdmin()) {
+    return { memberships };
+  }
   if (!name || !email || !role) {
     alert('Please fill in all required fields.');
+    return null;
+  }
+  if (!isEdit && canManageModuleAccess && !memberships.length) {
+    alert('Select at least one module access role.');
     return null;
   }
   if (!isEdit && !password.trim()) {
@@ -2045,7 +3009,8 @@ function buildUserPayload(isEdit) {
     alert('Password must be at least 8 characters.');
     return null;
   }
-  const payload = { name, email, role, is_active: isActive };
+  const payload = { name, email, role: effectiveRole, is_active: isActive };
+  if (canManageModuleAccess) payload.memberships = memberships;
   if (!isEdit || password) payload.password = password;
   return payload;
 }
@@ -2177,7 +3142,7 @@ async function saveFamily() {
   const rm = document.getElementById('f-rm').value.trim();
   const remarks = document.getElementById('f-remarks').value.trim();
   if (!canEditFamily()) { showToast('Your role is not allowed to save families.'); return; }
-  if (db.currentUser?.role === 'rm') {
+  if (isCanRM()) {
     if (!db.editFamilyId) { showToast('Your role is not allowed to add families.'); return; }
     try {
       const saved = await api.patch(`/families/${db.editFamilyId}`, { remarks: remarks || null });
@@ -2272,7 +3237,7 @@ async function openEditMember(mid) {
 }
 
 function memberPayload({ partialSensitive }) {
-  if (db.currentUser?.role === 'rm') {
+  if (isCanRM()) {
     return { remarks: document.getElementById('m-remarks').value.trim() || null };
   }
   const name = document.getElementById('m-name').value.trim();
@@ -2308,7 +3273,7 @@ async function saveMember() {
   const name = document.getElementById('m-name').value.trim();
   const can = document.getElementById('m-can').value.trim();
   if (!canEditMember()) { showToast('Your role is not allowed to save members.'); return; }
-  if (db.currentUser?.role !== 'rm' && (!name || !can)) { alert('Name and CAN are required.'); return; }
+  if (!isCanRM() && (!name || !can)) { alert('Name and CAN are required.'); return; }
 
   try {
     let saved;

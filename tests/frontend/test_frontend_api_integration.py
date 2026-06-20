@@ -1,6 +1,6 @@
 from pathlib import Path
 
-HTML_PATH = Path(__file__).resolve().parents[2] / "remixed-c3e65622.html"
+HTML_PATH = Path(__file__).resolve().parents[2] / "can_tracker_dashboard.html"
 HTML = HTML_PATH.read_text(encoding="utf-8")
 SCRIPT = HTML.split("<script>", 1)[1].rsplit("</script>", 1)[0]
 
@@ -109,6 +109,8 @@ def test_admin_user_modal_handles_create_edit_password_rules() -> None:
         'id="u-name"',
         'id="u-email"',
         'id="u-role"',
+        'id="u-can-role"',
+        'id="u-txn-role"',
         'id="u-active"',
         'id="u-password"',
         'id="u-password-help"',
@@ -118,6 +120,8 @@ def test_admin_user_modal_handles_create_edit_password_rules() -> None:
     assert "Edit / Reset Password" in SCRIPT
     assert "Leave blank to keep the current password." in SCRIPT
     assert "Password is required for new users." in SCRIPT
+    assert "payload.memberships = memberships" in SCRIPT
+    assert "Module admins can update module access only." in SCRIPT
     assert "if (!isEdit || password) payload.password = password;" in SCRIPT
 
 
@@ -128,6 +132,8 @@ def test_admin_role_access_reference_explains_supported_roles() -> None:
         "Assigned families only",
         "remarks-only updates",
         "Read-only access",
+        "CRM Admin",
+        "Ops / Relationship / Viewer",
     ]
     for text in required_text:
         assert text in HTML
@@ -136,6 +142,50 @@ def test_admin_role_access_reference_explains_supported_roles() -> None:
 def test_admin_portal_navigation_is_admin_only() -> None:
     assert "function canManageUsers()" in SCRIPT
     assert "db.currentUser?.role === 'admin'" in SCRIPT
+    assert "hasModuleRole('client_crm', 'crm_admin')" in SCRIPT
     assert "document.querySelectorAll('[data-admin-only]')" in SCRIPT
     assert "Your role is not allowed to manage users." in SCRIPT
     assert HTML.count("data-admin-only") >= 3
+
+
+def test_admin_user_management_renders_module_access_controls() -> None:
+    required_snippets = [
+        "function userAccessBadges",
+        "function canAdministerUserModule",
+        "function userModuleMembershipPayload",
+        "module_code: 'can_compliance'",
+        "module_code: 'client_crm'",
+        "<th>Access</th>",
+    ]
+    for snippet in required_snippets:
+        assert snippet in HTML or snippet in SCRIPT
+
+
+def test_client_crm_module_is_in_shared_shell() -> None:
+    required_markup = [
+        "MFU Operations Portal",
+        "navigate('transactions')",
+        'id="page-transactions"',
+        'id="txn-kpi-row"',
+        'id="txn-summary-row"',
+        'id="transaction-modal"',
+    ]
+    for snippet in required_markup:
+        assert snippet in HTML
+
+
+def test_client_crm_uses_local_adapter_until_backend_exists() -> None:
+    required_snippets = [
+        "const transactionApi =",
+        "TRANSACTION_STORAGE_KEY",
+        "GET/POST/PATCH/DELETE /api/v1/crm/transactions",
+        "GET /api/v1/crm/summary",
+        "transactionSeedData()",
+        "renderTransactionsPage()",
+    ]
+    for snippet in required_snippets:
+        assert snippet in SCRIPT
+    assert "api.get('/transactions'" not in SCRIPT
+    assert "api.post('/transactions'" not in SCRIPT
+    assert "api.patch('/transactions'" not in SCRIPT
+    assert "api.delete('/transactions'" not in SCRIPT

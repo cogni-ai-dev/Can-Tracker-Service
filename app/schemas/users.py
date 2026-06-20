@@ -3,7 +3,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.domain.enums import UserRole
+from app.domain.access import validate_membership_roles
+from app.domain.enums import ModuleCode, ModuleRole, UserRole
 
 
 def normalize_email(value: str) -> str:
@@ -20,6 +21,23 @@ def _non_blank(value: str, field_name: str) -> str:
     return normalized
 
 
+class UserModuleMembershipRead(BaseModel):
+    module_code: ModuleCode
+    role: ModuleRole
+    is_active: bool = True
+
+
+class UserModuleMembershipInput(BaseModel):
+    module_code: ModuleCode
+    role: ModuleRole
+    is_active: bool = True
+
+    @model_validator(mode="after")
+    def validate_role_for_module(self) -> "UserModuleMembershipInput":
+        validate_membership_roles([self])
+        return self
+
+
 class UserRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -27,6 +45,9 @@ class UserRead(BaseModel):
     name: str
     email: str
     role: UserRole
+    memberships: list[UserModuleMembershipRead] = Field(default_factory=list)
+    module_codes: list[ModuleCode] = Field(default_factory=list)
+    is_platform_admin: bool = False
     is_active: bool
     last_login_at: datetime | None = None
     created_at: datetime
@@ -38,6 +59,7 @@ class UserCreate(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     password: str = Field(min_length=8, max_length=256)
     role: UserRole
+    memberships: list[UserModuleMembershipInput] = Field(default_factory=list)
     is_active: bool = True
 
     @field_validator("name")
@@ -55,12 +77,18 @@ class UserCreate(BaseModel):
     def validate_password(cls, value: str) -> str:
         return _non_blank(value, "Password")
 
+    @model_validator(mode="after")
+    def validate_memberships(self) -> "UserCreate":
+        validate_membership_roles(self.memberships)
+        return self
+
 
 class UserUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     email: str | None = Field(default=None, min_length=3, max_length=320)
     password: str | None = Field(default=None, min_length=8, max_length=256)
     role: UserRole | None = None
+    memberships: list[UserModuleMembershipInput] | None = None
     is_active: bool | None = None
 
     @field_validator("name")
@@ -82,6 +110,8 @@ class UserUpdate(BaseModel):
     def require_update_field(self) -> "UserUpdate":
         if not self.model_fields_set:
             raise ValueError("At least one field must be provided.")
+        if self.memberships is not None:
+            validate_membership_roles(self.memberships)
         return self
 
 
