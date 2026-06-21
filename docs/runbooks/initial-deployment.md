@@ -31,7 +31,7 @@ Production values must satisfy:
 - `DATABASE_SCHEMA=can_tracker`
 - `CORS_ORIGINS=https://<production-domain>`
 - `BACKUP_RETENTION_DAYS` is at least `14`
-- `API_BIND=127.0.0.1` when a local reverse proxy is used; use `0.0.0.0` only if the API itself is intentionally public.
+- `API_BIND=0.0.0.0` for direct Compose access on port `8001`; use `127.0.0.1` when a local reverse proxy is the only public entrypoint.
 
 ## Deploy
 

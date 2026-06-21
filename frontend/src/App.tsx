@@ -4,6 +4,8 @@ import type { LucideIcon } from 'lucide-react';
 import {
   BarChart3,
   ClipboardList,
+  Eye,
+  EyeOff,
   FileText,
   KeyRound,
   LayoutDashboard,
@@ -302,15 +304,30 @@ function PasswordModal({ onClose }: { onClose: () => void }) {
           {error && <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
           <label className="block text-sm font-medium text-slate-700">
             Current password
-            <input value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} type="password" className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+            <RevealPasswordInput
+              value={currentPassword}
+              onChange={setCurrentPassword}
+              autoComplete="current-password"
+              revealLabel="current password"
+            />
           </label>
           <label className="block text-sm font-medium text-slate-700">
             New password
-            <input value={newPassword} onChange={(event) => setNewPassword(event.target.value)} type="password" className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+            <RevealPasswordInput
+              value={newPassword}
+              onChange={setNewPassword}
+              autoComplete="new-password"
+              revealLabel="new password"
+            />
           </label>
           <label className="block text-sm font-medium text-slate-700">
             Confirm new password
-            <input value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} type="password" className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+            <RevealPasswordInput
+              value={confirmPassword}
+              onChange={setConfirmPassword}
+              autoComplete="new-password"
+              revealLabel="confirm new password"
+            />
           </label>
           <div className="flex justify-end gap-2">
             <button type="button" onClick={onClose} className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Cancel</button>
@@ -318,6 +335,43 @@ function PasswordModal({ onClose }: { onClose: () => void }) {
           </div>
         </div>
       </form>
+    </div>
+  );
+}
+
+function RevealPasswordInput({
+  value,
+  onChange,
+  autoComplete,
+  revealLabel,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  autoComplete: string;
+  revealLabel: string;
+}) {
+  const [visible, setVisible] = useState(false);
+  const label = `${visible ? 'Hide' : 'Show'} ${revealLabel}`;
+  const Icon = visible ? EyeOff : Eye;
+
+  return (
+    <div className="relative mt-1">
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        type={visible ? 'text' : 'password'}
+        autoComplete={autoComplete}
+        className="w-full rounded-md border border-slate-300 px-3 py-2 pr-10 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+      />
+      <button
+        type="button"
+        aria-label={label}
+        title={label}
+        onClick={() => setVisible((current) => !current)}
+        className="absolute right-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+      >
+        <Icon size={16} />
+      </button>
     </div>
   );
 }

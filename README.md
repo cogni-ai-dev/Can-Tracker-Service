@@ -84,18 +84,26 @@ legacy transition shell while the React app becomes the primary frontend.
 ## Docker Compose
 
 Compose is split into PostgreSQL, API, and React frontend stacks. For local
-Compose, use non-production secrets and set `APP_ENV=local`,
-`SESSION_COOKIE_SECURE=false`,
-`DATABASE_URL=postgresql+psycopg://can:can@host.docker.internal:5402/can`,
-and `DATABASE_SCHEMA=can_tracker`.
+Compose, put runtime values in ignored override files instead of loading the
+root `.env` file.
+
+Create local overrides, then replace every API secret placeholder:
+
+```bash
+cp docker/can-tracker-service/docker-compose.override.example.yml docker/can-tracker-service/docker-compose.override.yml
+cp docker/can-tracker-frontend/docker-compose.override.example.yml docker/can-tracker-frontend/docker-compose.override.yml
+```
 
 Start PostgreSQL, then the API, then the React frontend:
 
 ```bash
 docker compose -f docker/can-postgres/docker-compose.yml up -d
-docker compose --env-file .env -f docker/can-tracker-service/docker-compose.yml up -d --build
-docker compose --env-file .env -f docker/can-tracker-frontend/docker-compose.yml up -d --build
+(cd docker/can-tracker-service && docker compose up -d --build)
+(cd docker/can-tracker-frontend && docker compose up -d --build)
 ```
+
+Run API `stop`, `down`, `logs`, and `ps` from `docker/can-tracker-service/` so
+Compose automatically loads `docker-compose.override.yml`.
 
 The frontend container serves the built React app and proxies `/api` to
 `${API_UPSTREAM:-http://host.docker.internal:8001}` so browser requests stay
@@ -109,8 +117,8 @@ uv run python scripts/serve_ui.py
 
 Compose publishes:
 
-- API: `http://${API_BIND:-127.0.0.1}:${API_PORT:-8001}`
-- React UI: `http://${UI_BIND:-127.0.0.1}:${UI_PORT:-3001}`
+- API default: `0.0.0.0:8001` in Docker, reachable locally at `http://127.0.0.1:8001`
+- React UI default: `0.0.0.0:3001` in Docker, reachable locally at `http://127.0.0.1:3001`
 - Legacy standalone UI: `http://127.0.0.1:8081`
 - PostgreSQL: `127.0.0.1:5402`
 

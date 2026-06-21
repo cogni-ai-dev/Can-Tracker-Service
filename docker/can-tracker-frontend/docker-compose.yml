@@ -1,28 +1,38 @@
 services:
   can-tracker-frontend-ui:
+    image: can-tracker-frontend-ui
     container_name: can-tracker-frontend-ui
+
     build:
       context: ../..
       dockerfile: docker/can-tracker-frontend/service.Dockerfile
-    image: ${UI_IMAGE:-can-tracker-frontend:latest}
+
     restart: unless-stopped
+
     environment:
-      API_UPSTREAM: ${API_UPSTREAM:-http://host.docker.internal:8001}
+      API_UPSTREAM: ${API_UPSTREAM:-http://host.docker.internal:8002}
       NGINX_ENVSUBST_FILTER: "^API_UPSTREAM$"
+
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
     ports:
-      - "${UI_BIND:-127.0.0.1}:${UI_PORT:-3001}:8080"
+      - "${UI_BIND:-0.0.0.0}:${UI_PORT:-3001}:8080"
+
     read_only: true
+
     tmpfs:
       - /tmp:uid=101,gid=101,mode=1777
       - /etc/nginx/conf.d:uid=101,gid=101,mode=0775
       - /var/cache/nginx:uid=101,gid=101,mode=0775
       - /run:uid=101,gid=101,mode=0775
+
     cap_drop:
       - ALL
+
     security_opt:
       - no-new-privileges:true
+
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/health"]
       interval: 30s
