@@ -1,5 +1,6 @@
 services:
-  api:
+  can-tracker-service-api:
+    container_name: can-tracker-service-api
     build:
       context: ../..
       dockerfile: docker/can-tracker-service/service.Dockerfile
@@ -24,7 +25,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "${API_BIND:-127.0.0.1}:${API_PORT:-8000}:8000"
+      - "${API_BIND:-127.0.0.1}:${API_PORT:-8001}:8000"
     read_only: true
     tmpfs:
       - /tmp

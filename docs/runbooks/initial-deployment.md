@@ -49,9 +49,9 @@ The API container runs `alembic upgrade head` before starting Uvicorn.
 docker compose -f docker/can-postgres/docker-compose.yml ps
 docker compose --env-file .env -f docker/can-tracker-service/docker-compose.yml ps
 docker compose --env-file .env -f docker/can-tracker-service/docker-compose.yml logs --tail=100 api
-curl -fsS http://127.0.0.1:8000/health
-curl -fsS http://127.0.0.1:8000/ready
-curl -fsS http://127.0.0.1:8000/api/v1/meta
+curl -fsS http://127.0.0.1:8001/health
+curl -fsS http://127.0.0.1:8001/ready
+curl -fsS http://127.0.0.1:8001/api/v1/meta
 ```
 
 Expected results:

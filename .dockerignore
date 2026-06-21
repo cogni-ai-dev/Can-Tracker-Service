@@ -10,3 +10,7 @@ htmlcov
 backups
 *.dump
 *.sql
+frontend/node_modules
+frontend/dist
+frontend/node_modules/.tmp
+frontend/*.tsbuildinfo

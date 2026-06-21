@@ -126,7 +126,7 @@ Docker Compose services:
 
 Expose:
 
-- API on `127.0.0.1:8000`.
+- API on `127.0.0.1:8001`.
 - Postgres on a configurable local port.
 
 ## Implementation Steps
@@ -176,4 +176,3 @@ Expose:
 ## Dependencies
 
 - [01-domain-model-and-business-rules.md](01-domain-model-and-business-rules.md)
-

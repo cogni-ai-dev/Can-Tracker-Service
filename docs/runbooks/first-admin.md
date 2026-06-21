@@ -25,7 +25,7 @@ The password must be at least eight characters. Use a long random temporary pass
 ## Verify
 
 ```bash
-curl -i -X POST http://127.0.0.1:8000/api/v1/auth/login \
+curl -i -X POST http://127.0.0.1:8001/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"<admin-email>","password":"<temporary-password>"}'
 ```

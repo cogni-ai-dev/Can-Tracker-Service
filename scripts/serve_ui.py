@@ -102,7 +102,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--host", default="127.0.0.1", help="UI bind host.")
     parser.add_argument("--port", type=int, default=8081, help="UI bind port.")
     parser.add_argument("--api-host", default="127.0.0.1", help="API host for proxying /api requests.")
-    parser.add_argument("--api-port", type=int, default=8000, help="API port for proxying /api requests.")
+    parser.add_argument("--api-port", type=int, default=8001, help="API port for proxying /api requests.")
     parser.add_argument(
         "--html",
         type=Path,

@@ -67,8 +67,8 @@ docker compose --env-file .env -f docker/can-tracker-service/docker-compose.yml 
 ## Restore Acceptance Checks
 
 ```bash
-curl -fsS http://127.0.0.1:8000/health
-curl -fsS http://127.0.0.1:8000/ready
+curl -fsS http://127.0.0.1:8001/health
+curl -fsS http://127.0.0.1:8001/ready
 ```
 
 Then verify:
