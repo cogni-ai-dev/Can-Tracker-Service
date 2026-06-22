@@ -12,7 +12,7 @@ FROM nginxinc/nginx-unprivileged:1.27-alpine AS runtime
 
 ENV API_UPSTREAM=http://host.docker.internal:8002
 
-COPY docker/can-tracker-frontend/nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY docker/can-tracker-ui/nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=builder /app/frontend/dist /usr/share/nginx/html
 
 EXPOSE 8080

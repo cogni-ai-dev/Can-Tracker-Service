@@ -1,5 +1,5 @@
 services:
-  can-tracker-frontend-ui:
+  can-tracker-ui:
     image: can-tracker-ui
     container_name: can-tracker-ui
 
