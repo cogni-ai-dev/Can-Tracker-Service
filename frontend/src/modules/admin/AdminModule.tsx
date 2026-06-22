@@ -27,6 +27,51 @@ const moduleRoleLabels: Record<ModuleRole, string> = {
 const canRoles: ModuleRole[] = ['can_admin', 'can_ops', 'can_rm', 'can_management'];
 const crmRoles: ModuleRole[] = ['crm_admin', 'crm_ops', 'crm_relationship_manager', 'crm_viewer'];
 
+const roleGuideItems: Array<{ title: string; detail: string }> = [
+  {
+    title: 'CAN Admin',
+    detail: 'Full CAN access, user management, audit logs, imports, and sensitive values.',
+  },
+  {
+    title: 'CAN Ops',
+    detail: 'Create, edit, delete, import, and report across CAN records. No user management or audit logs.',
+  },
+  {
+    title: 'CAN RM',
+    detail: 'Assigned families only, with remarks-only updates.',
+  },
+  {
+    title: 'CAN Management',
+    detail: 'Read-only CAN dashboards, records, tasks, and reports.',
+  },
+  {
+    title: 'CRM Admin',
+    detail: 'Can manage CRM users and CRM module access.',
+  },
+  {
+    title: 'CRM Ops / Relationship / Viewer',
+    detail: 'CRM operations work, relationship follow-up, and read-only access labels.',
+  },
+];
+
+const userRoleHelpText: Record<UserRole, string> = {
+  admin: 'Platform admin maps to CAN Admin and can administer the full platform.',
+  ops: 'CAN Ops maps to operational CAN write access without user or audit administration.',
+  rm: 'Relationship Manager maps to CAN RM and is limited to assigned-family remarks updates.',
+  management: 'Management maps to read-only CAN access, or a CRM-only user when no CAN role is selected.',
+};
+
+const moduleRoleHelpText: Record<ModuleRole, string> = {
+  can_admin: roleGuideItems[0].detail,
+  can_ops: roleGuideItems[1].detail,
+  can_rm: roleGuideItems[2].detail,
+  can_management: roleGuideItems[3].detail,
+  crm_admin: roleGuideItems[4].detail,
+  crm_ops: 'CRM operations work access.',
+  crm_relationship_manager: 'CRM relationship follow-up access.',
+  crm_viewer: 'Read-only CRM access label.',
+};
+
 type UserModalState = { mode: 'create'; user?: undefined } | { mode: 'edit'; user: UserRecord } | null;
 
 export function AdminModule({ user }: { user: CurrentUser }) {
@@ -130,6 +175,7 @@ export function AdminModule({ user }: { user: CurrentUser }) {
           </select>
         </div>
       </Card>
+      <RoleAccessGuide />
       {loading && <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">Loading users...</div>}
       {error && <EmptyState title="Users unavailable" detail={error} />}
       {!loading && !error && (
@@ -316,6 +362,7 @@ function UserModal({
               <select value={role} disabled={globalFieldsDisabled} onChange={(event) => setRole(event.target.value as UserRole)} className={inputClass}>
                 {Object.entries(userRoleLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
+              <HelpText>{userRoleHelpText[role]}</HelpText>
             </Field>
             <Field label="Status">
               <select value={String(isActive)} disabled={globalFieldsDisabled} onChange={(event) => setIsActive(event.target.value === 'true')} className={inputClass}>
@@ -336,6 +383,7 @@ function UserModal({
                     <option value="">No CAN access</option>
                     {canRoles.map((item) => <option key={item} value={item}>{moduleRoleLabels[item]}</option>)}
                   </select>
+                  <HelpText>{canRole ? moduleRoleHelpText[canRole] : 'No CAN Compliance access will be assigned.'}</HelpText>
                 </Field>
               )}
               {canManageCrm && (
@@ -344,6 +392,7 @@ function UserModal({
                     <option value="">No CRM access</option>
                     {crmRoles.map((item) => <option key={item} value={item}>{moduleRoleLabels[item]}</option>)}
                   </select>
+                  <HelpText>{crmRole ? moduleRoleHelpText[crmRole] : 'No Client CRM access will be assigned.'}</HelpText>
                 </Field>
               )}
             </div>
@@ -358,6 +407,25 @@ function UserModal({
   );
 }
 
+function RoleAccessGuide() {
+  return (
+    <Card className="mb-4">
+      <div className="mb-3">
+        <div className="text-sm font-semibold text-slate-900">Role Access</div>
+        <div className="mt-1 text-sm text-slate-500">Use this reference before assigning primary roles or module access.</div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {roleGuideItems.map((item) => (
+          <div key={item.title} className="rounded-md border border-slate-200 bg-slate-50 p-3">
+            <div className="text-sm font-semibold text-slate-900">{item.title}</div>
+            <div className="mt-1 text-sm leading-5 text-slate-600">{item.detail}</div>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 function moduleRoleFor(memberships: UserMembership[], moduleCode: ModuleCode) {
   return memberships.find((membership) => membership.module_code === moduleCode)?.role || '';
 }
@@ -369,6 +437,10 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <div className="mt-1">{children}</div>
     </label>
   );
+}
+
+function HelpText({ children }: { children: React.ReactNode }) {
+  return <div className="mt-1 text-xs leading-5 text-slate-500">{children}</div>;
 }
 
 function formatDate(value: string | null | undefined) {

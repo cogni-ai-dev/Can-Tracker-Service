@@ -1,11 +1,11 @@
 services:
   can-tracker-frontend-ui:
-    image: can-tracker-frontend-ui
-    container_name: can-tracker-frontend-ui
+    image: can-tracker-ui
+    container_name: can-tracker-ui
 
     build:
       context: ../..
-      dockerfile: docker/can-tracker-frontend/service.Dockerfile
+      dockerfile: docker/can-tracker-ui/service.Dockerfile
 
     restart: unless-stopped
 

@@ -4,6 +4,7 @@ FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
 APP = (FRONTEND / "src" / "App.tsx").read_text(encoding="utf-8")
 CRM = (FRONTEND / "src" / "modules" / "crm" / "ClientCrmModule.tsx").read_text(encoding="utf-8")
 COMPLIANCE = (FRONTEND / "src" / "modules" / "compliance" / "ComplianceModule.tsx").read_text(encoding="utf-8")
+ADMIN = (FRONTEND / "src" / "modules" / "admin" / "AdminModule.tsx").read_text(encoding="utf-8")
 CRM_API = (FRONTEND / "src" / "modules" / "crm" / "crmMockApi.ts").read_text(encoding="utf-8")
 API = (FRONTEND / "src" / "lib" / "api.ts").read_text(encoding="utf-8")
 PACKAGE = (FRONTEND / "package.json").read_text(encoding="utf-8")
@@ -123,3 +124,17 @@ def test_hybrid_lead_to_client_fields_are_present() -> None:
     combined = CRM_API + (FRONTEND / "src" / "types.ts").read_text(encoding="utf-8")
     for field in required_fields:
         assert field in combined
+
+
+def test_react_admin_explains_role_access() -> None:
+    required_text = [
+        "Role Access",
+        "Full CAN access, user management, audit logs, imports, and sensitive values.",
+        "Create, edit, delete, import, and report across CAN records. No user management or audit logs.",
+        "Assigned families only, with remarks-only updates.",
+        "Read-only CAN dashboards, records, tasks, and reports.",
+        "Can manage CRM users and CRM module access.",
+        "CRM operations work, relationship follow-up, and read-only access labels.",
+    ]
+    for text in required_text:
+        assert text in ADMIN

@@ -1,7 +1,7 @@
 services:
-  can-tracker-service-api:
-    image: can-tracker-service-api
-    container_name: can-tracker-service-api
+  can-tracker-service:
+    image: can-tracker-service
+    container_name: can-tracker-service
 
     build:
       context: ../..

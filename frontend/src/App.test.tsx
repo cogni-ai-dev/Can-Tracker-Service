@@ -153,6 +153,7 @@ function installFetch(user: CurrentUser) {
     if (url.pathname === '/api/v1/tasks') return json({ items: [task], total: 1, limit: 500, offset: 0 });
     if (url.pathname === '/api/v1/families') return json({ items: [family], total: 1, limit: 500, offset: 0 });
     if (url.pathname === '/api/v1/members') return json({ items: [member], total: 1, limit: 500, offset: 0 });
+    if (url.pathname === '/api/v1/users') return json([canUser, crmUser]);
     if (url.pathname === `/api/v1/dashboard/families/${family.id}`) {
       return json({ ...family, number_of_members: 1, members: [member] });
     }
@@ -212,5 +213,15 @@ describe('MFU Operations Portal shell', () => {
     expect(screen.getByText('Shah Family')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Add Member' }).length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument();
+  });
+
+  it('shows role access guidance in admin user management', async () => {
+    renderApp('#/admin/users', canUser);
+
+    expect(await screen.findByRole('heading', { name: 'Users & Access' })).toBeInTheDocument();
+    expect(screen.getByText('Role Access')).toBeInTheDocument();
+    expect(screen.getByText('Full CAN access, user management, audit logs, imports, and sensitive values.')).toBeInTheDocument();
+    expect(screen.getByText('Create, edit, delete, import, and report across CAN records. No user management or audit logs.')).toBeInTheDocument();
+    expect(screen.getByText('Can manage CRM users and CRM module access.')).toBeInTheDocument();
   });
 });
