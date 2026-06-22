@@ -10,11 +10,14 @@ services:
     restart: unless-stopped
 
     environment:
-      API_UPSTREAM: ${API_UPSTREAM:-http://host.docker.internal:8002}
+      API_UPSTREAM: ${API_UPSTREAM:-http://can-tracker-service:8002}
       NGINX_ENVSUBST_FILTER: "^API_UPSTREAM$"
 
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+    networks:
+      - can-tracker-local
 
     ports:
       - "${UI_BIND:-0.0.0.0}:${UI_PORT:-3001}:8080"
@@ -39,3 +42,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+networks:
+  can-tracker-local:
+    name: can-tracker-local

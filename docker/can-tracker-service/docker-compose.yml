@@ -45,6 +45,9 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+    networks:
+      - can-tracker-local
+
     ports:
       - "${API_BIND:-0.0.0.0}:${API_PORT:-8002}:8002"
 
@@ -71,3 +74,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+
+networks:
+  can-tracker-local:
+    name: can-tracker-local
