@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.security import hash_password
-from app.domain.enums import AuditAction, ChangeSource, KycStatus, PayeezzStatus, UserRole, VerificationStatus
+from app.domain.enums import AuditAction, CanStatus, ChangeSource, KycStatus, PayeezzStatus, UserRole, VerificationStatus
 from app.main import create_app
 from app.models.audit import AuditLog
 from app.models.family import Family, Member, MemberBankAccount
@@ -513,6 +513,52 @@ async def test_import_without_family_code_matches_unassigned_family_by_head(
     db_session.expire_all()
     member = db_session.scalar(select(Member).where(Member.can_number == "CAN-UNASSIGNED-MATCH"))
     assert member is not None and member.family_id == family.id
+
+
+@pytest.mark.asyncio
+async def test_import_commit_assigns_can_to_existing_member_matched_by_family_and_name(
+    test_settings: Settings,
+    db_engine,
+    db_session: Session,
+) -> None:
+    admin = create_test_user(db_session, email="admin@example.test", role=UserRole.ADMIN)
+    family = Family(family_code="FAM-CAN-UPDATE", family_head_name="CAN Update Head", primary_rm_id=None)
+    member = Member(
+        family=family,
+        name="CAN Update Member",
+        can_number=None,
+        can_status=CanStatus.PENDING.value,
+        kyc_status=KycStatus.NOT_STARTED.value,
+        mobile_verification_status=VerificationStatus.PENDING_VERIFICATION.value,
+        email_verification_status=VerificationStatus.PENDING_VERIFICATION.value,
+        nominee_verification_status=VerificationStatus.PENDING_VERIFICATION.value,
+    )
+    db_session.add_all([family, member])
+    db_session.commit()
+
+    row = template_row(
+        FamilyCode="FAM-CAN-UPDATE",
+        FamilyHeadName="CAN Update Head",
+        PrimaryRMEmail="",
+        PrimaryRMName="",
+        MemberName="CAN Update Member",
+        CANNumber="CAN-EXISTING-MEMBER",
+    )
+
+    async with client_for(test_settings) as client:
+        assert (await login(client, admin.email)).status_code == 200
+        upload = await upload_file(client, "existing-member-can.csv", csv_template_bytes([row]))
+        batch = upload.json()
+        commit = await client.post(f"/api/v1/imports/{batch['id']}/commit")
+
+    assert upload.status_code == 201, upload.text
+    assert batch["valid_row_count"] == 1
+    assert commit.status_code == 200, commit.text
+
+    db_session.expire_all()
+    db_session.refresh(member)
+    assert member.can_number == "CAN-EXISTING-MEMBER"
+    assert member.can_status == CanStatus.AVAILABLE.value
 
 
 @pytest.mark.asyncio

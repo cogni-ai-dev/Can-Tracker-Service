@@ -144,6 +144,10 @@ class ComplianceMetricTests(unittest.TestCase):
 
         self.assertEqual(completion.total_members, 3)
         self.assertEqual(completion.total_cans, 3)
+        self.assertEqual(completion.can_completion.count, 3)
+        self.assertEqual(completion.can_completion_pct, 100)
+        self.assertEqual(completion.can_pending.count, 0)
+        self.assertEqual(completion.can_pending_pct, 0)
         self.assertEqual(completion.kyc_completion.count, 2)
         self.assertEqual(completion.kyc_completion_pct, 67)
         self.assertEqual(completion.payeezz_completion_pct, 33)
@@ -156,6 +160,8 @@ class ComplianceMetricTests(unittest.TestCase):
 
         self.assertEqual(completion.total_members, 0)
         self.assertEqual(completion.total_cans, 0)
+        self.assertEqual(completion.can_completion_pct, 0)
+        self.assertEqual(completion.can_pending_pct, 0)
         self.assertEqual(completion.kyc_completion_pct, 0)
         self.assertEqual(completion.payeezz_completion_pct, 0)
         self.assertEqual(completion.mobile_verification_pct, 0)
@@ -173,6 +179,10 @@ class ComplianceMetricTests(unittest.TestCase):
 
         self.assertEqual(completion.total_members, 3)
         self.assertEqual(completion.total_cans, 2)
+        self.assertEqual(completion.can_completion.count, 2)
+        self.assertEqual(completion.can_completion_pct, 67)
+        self.assertEqual(completion.can_pending.count, 1)
+        self.assertEqual(completion.can_pending_pct, 33)
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ from app.api.errors import raise_api_error
 from app.core.config import Settings
 from app.domain.access import user_is_can_rm
 from app.domain.compliance import family_completion, percentage
-from app.domain.enums import KycStatus, PayeezzStatus, VerificationStatus
+from app.domain.enums import CanStatus, KycStatus, PayeezzStatus, VerificationStatus
 from app.models.family import Family, Member, MemberBankAccount
 from app.models.user import User
 from app.repositories import families as family_repo
@@ -89,6 +89,8 @@ def get_dashboard_summary(
     row = db.execute(
         select(
             func.count(Member.id).label("total_clients"),
+            _count_when((Member.can_status == CanStatus.AVAILABLE.value) & Member.can_number.is_not(None)).label("can_available"),
+            _count_when((Member.can_status == CanStatus.PENDING.value) | Member.can_number.is_(None)).label("can_pending"),
             _count_when(Member.kyc_status == KycStatus.VERIFIED.value).label("kyc_verified"),
             _count_when(Member.kyc_status == KycStatus.PENDING_REKYC.value).label("kyc_pending_rekyc"),
             _count_when(Member.kyc_status == KycStatus.NOT_STARTED.value).label("kyc_not_started"),
@@ -117,6 +119,8 @@ def get_dashboard_summary(
     counts = row._mapping
 
     total_clients = int(counts["total_clients"] or 0)
+    can_available = int(counts["can_available"] or 0)
+    can_pending = int(counts["can_pending"] or 0)
     kyc_verified = int(counts["kyc_verified"] or 0)
     kyc_pending_rekyc = int(counts["kyc_pending_rekyc"] or 0)
     kyc_not_started = int(counts["kyc_not_started"] or 0)
@@ -136,6 +140,10 @@ def get_dashboard_summary(
     return {
         "total_clients": total_clients,
         "total_families": int(total_families),
+        "can_available": can_available,
+        "can_pending": can_pending,
+        "can_available_pct": percentage(can_available, total_clients),
+        "can_pending_pct": percentage(can_pending, total_clients),
         "kyc_verified": kyc_verified,
         "kyc_pending_rekyc": kyc_pending_rekyc,
         "kyc_not_started": kyc_not_started,
@@ -186,6 +194,8 @@ def get_family_dashboard_summary(
         "last_updated_at": last_updated_at,
         "number_of_members": completion.total_members,
         "total_cans": completion.total_cans,
+        "can_completion_pct": completion.can_completion_pct,
+        "can_pending_pct": completion.can_pending_pct,
         "kyc_completion_pct": completion.kyc_completion_pct,
         "mobile_verification_pct": completion.mobile_verification_pct,
         "email_verification_pct": completion.email_verification_pct,

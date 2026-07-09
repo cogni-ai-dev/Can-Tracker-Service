@@ -65,6 +65,10 @@ const crmUser: CurrentUser = {
 const summary: DashboardSummary = {
   total_clients: 1,
   total_families: 1,
+  can_available: 1,
+  can_pending: 0,
+  can_available_pct: 100,
+  can_pending_pct: 0,
   kyc_verified: 0,
   kyc_pending_rekyc: 1,
   kyc_not_started: 0,
@@ -95,11 +99,15 @@ const family: Family = {
   total_cans: 1,
   last_updated_at: '2026-01-02T00:00:00Z',
   remarks: null,
+  can_completion: { count: 1, percentage: 100 },
+  can_pending: { count: 0, percentage: 0 },
   kyc_completion: { count: 0, percentage: 0 },
   payeezz_completion: { count: 0, percentage: 0 },
   mobile_verification: { count: 0, percentage: 0 },
   email_verification: { count: 0, percentage: 0 },
   nominee_verification: { count: 0, percentage: 0 },
+  can_completion_pct: 100,
+  can_pending_pct: 0,
   kyc_completion_pct: 0,
   payeezz_completion_pct: 0,
   mobile_verification_pct: 0,
@@ -361,6 +369,8 @@ describe('MFU Operations Portal shell', () => {
     expect(screen.getAllByText('Families').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Pending Tasks').length).toBeGreaterThan(0);
     expect(screen.getByText('Total Clients')).toBeInTheDocument();
+    expect(screen.getAllByText('CAN Pending').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('CAN Available').length).toBeGreaterThan(0);
     expect(screen.queryByText('Control Centre')).not.toBeInTheDocument();
     expect(screen.queryByText('Backend Contract')).not.toBeInTheDocument();
   });

@@ -764,9 +764,9 @@ def _apply_import_member_data(
     stored_data: dict[str, Any],
     is_new: bool,
 ) -> None:
-    if is_new:
+    if is_new or data["can_number"] is not None:
         member.can_number = data["can_number"]
-    member.can_status = data["can_status"]
+    member.can_status = CanStatus.AVAILABLE.value if member.can_number is not None else CanStatus.PENDING.value
     member.name = data["member_name"]
     _set_member_protected_field_from_stored(member, "pan", stored_data)
     member.date_of_birth = _date_value(data["date_of_birth"])

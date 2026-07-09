@@ -332,6 +332,8 @@ function DashboardPage({
   if (!summary || !taskSummary) return <LoadingBlock label="Loading dashboard..." />;
 
   const chartData = [
+    { name: 'CAN Available', value: summary.can_available },
+    { name: 'CAN Pending', value: summary.can_pending },
     { name: 'KYC Verified', value: summary.kyc_verified },
     { name: 'KYC Pending', value: summary.kyc_pending },
     { name: 'PayEezz Approved', value: summary.payeezz_approved },
@@ -346,6 +348,7 @@ function DashboardPage({
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="Total Clients" value={summary.total_clients} tone="blue" />
         <MetricCard label="Total Families" value={summary.total_families} tone="slate" />
+        <MetricCard label="CAN Pending" value={summary.can_pending} tone={summary.can_pending ? 'red' : 'green'} detail={`${summary.can_pending_pct}% pending`} />
         <MetricCard label="KYC Pending" value={summary.kyc_pending} tone={summary.kyc_pending ? 'red' : 'green'} detail={`${summary.kyc_pending_pct}% pending`} />
         <MetricCard label="PayEezz Pending" value={summary.payeezz_pending} tone={summary.payeezz_pending ? 'red' : 'green'} detail={`${summary.payeezz_pending_pct}% pending`} />
       </div>
@@ -367,6 +370,7 @@ function DashboardPage({
         <Card>
           <div className="text-sm font-semibold text-slate-900">Status Completion</div>
           <div className="mt-4 space-y-4">
+            <ProgressRow label="CAN Available" value={summary.can_available_pct} tone="green" />
             <ProgressRow label="KYC Verified" value={summary.kyc_verified_pct} tone="green" />
             <ProgressRow label="PayEezz Approved" value={summary.payeezz_approved_pct} tone="green" />
             <ProgressRow label="Mobile Verified" value={percent(summary.mobile_verified, summary.total_clients)} tone="blue" />
@@ -459,6 +463,8 @@ function FamiliesPage({
         <div className="flex flex-wrap items-center gap-2">
           {[
             ['all', 'All Families'],
+            ['can_pending', 'CAN Pending'],
+            ['can_available', 'CAN Available'],
             ['kyc_pending', 'KYC Pending'],
             ['payeezz_pending', 'PayEezz Pending'],
             ['contact_pending', 'Contact Pending'],
@@ -687,9 +693,10 @@ function FamilyDetailPage({
         </div>
         {family.remarks && <p className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600">{family.remarks}</p>}
       </Card>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <MetricCard label="Members" value={memberCount} tone="slate" />
         <MetricCard label="Total CANs" value={family.total_cans} tone="blue" />
+        <MetricCard label="CAN Pending" value={memberCount - family.total_cans} tone={memberCount - family.total_cans ? 'red' : 'green'} />
         <MetricCard label="KYC" value={`${family.kyc_completion_pct}%`} tone={family.kyc_completion_pct === 100 ? 'green' : 'red'} />
         <MetricCard label="PayEezz" value={`${family.payeezz_completion_pct}%`} tone={family.payeezz_completion_pct === 100 ? 'green' : 'red'} />
         <MetricCard label="Contact" value={`${Math.round((family.mobile_verification_pct + family.email_verification_pct + family.nominee_verification_pct) / 3)}%`} tone="yellow" />
@@ -1699,12 +1706,14 @@ function FamilyCard({
           </button>
         )}
       </div>
-      <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+      <div className="mt-4 grid grid-cols-4 gap-2 text-center">
         <MiniStat label="Members" value={family.total_members} />
         <MiniStat label="CANs" value={family.total_cans} />
+        <MiniStat label="Pending CAN" value={family.can_pending.count} />
         <MiniStat label="Updated" value={formatDate(family.last_updated_at)} small />
       </div>
       <div className="mt-4 space-y-2">
+        <ProgressRow label="CAN" value={family.can_completion_pct} tone={family.can_completion_pct === 100 ? 'green' : 'red'} compact />
         <ProgressRow label="KYC" value={family.kyc_completion_pct} tone={family.kyc_completion_pct === 100 ? 'green' : 'red'} compact />
         <ProgressRow label="PayEezz" value={family.payeezz_completion_pct} tone={family.payeezz_completion_pct === 100 ? 'green' : 'red'} compact />
         <ProgressRow label="Contact" value={Math.round((family.mobile_verification_pct + family.email_verification_pct + family.nominee_verification_pct) / 3)} tone="blue" compact />

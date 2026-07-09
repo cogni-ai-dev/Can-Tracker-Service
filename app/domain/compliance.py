@@ -48,6 +48,8 @@ class VerificationMetrics:
 class FamilyCompletion:
     total_members: int
     total_cans: int
+    can_completion: CountPercentage
+    can_pending: CountPercentage
     kyc_completion: CountPercentage
     payeezz_completion: CountPercentage
     mobile_verification: CountPercentage
@@ -57,6 +59,14 @@ class FamilyCompletion:
     @property
     def kyc_completion_pct(self) -> int:
         return self.kyc_completion.percentage
+
+    @property
+    def can_completion_pct(self) -> int:
+        return self.can_completion.percentage
+
+    @property
+    def can_pending_pct(self) -> int:
+        return self.can_pending.percentage
 
     @property
     def payeezz_completion_pct(self) -> int:
@@ -198,14 +208,18 @@ def family_completion(members: Iterable[Any]) -> FamilyCompletion:
     mobile = mobile_verification_counts(records)
     email = email_verification_counts(records)
     nominee = nominee_verification_counts(records)
+    total_cans = sum(
+        1
+        for member in records
+        if value(member, "can_status", default=None) == CanStatus.AVAILABLE.value
+        and value(member, "can_number", default=None)
+    )
+    can_pending = len(records) - total_cans
     return FamilyCompletion(
         total_members=len(records),
-        total_cans=sum(
-            1
-            for member in records
-            if value(member, "can_status", default=None) == CanStatus.AVAILABLE.value
-            and value(member, "can_number", default=None)
-        ),
+        total_cans=total_cans,
+        can_completion=count_percentage(total_cans, len(records)),
+        can_pending=count_percentage(can_pending, len(records)),
         kyc_completion=kyc.completion,
         payeezz_completion=payeezz.completion,
         mobile_verification=mobile.completion,

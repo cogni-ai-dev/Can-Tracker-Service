@@ -96,6 +96,10 @@ async def test_dashboard_summary_and_family_summary_match_canonical_html_style_c
     assert summary_response.status_code == 200
     assert summary["total_clients"] == 4
     assert summary["total_families"] == 2
+    assert summary["can_available"] == 4
+    assert summary["can_pending"] == 0
+    assert summary["can_available_pct"] == 100
+    assert summary["can_pending_pct"] == 0
     assert summary["kyc_verified"] == 2
     assert summary["kyc_pending_rekyc"] == 1
     assert summary["kyc_not_started"] == 1
@@ -119,6 +123,8 @@ async def test_dashboard_summary_and_family_summary_match_canonical_html_style_c
     rm_summary = rm_summary_response.json()
     assert rm_summary["total_clients"] == 3
     assert rm_summary["total_families"] == 1
+    assert rm_summary["can_available"] == 3
+    assert rm_summary["can_pending"] == 0
     assert rm_summary["kyc_verified"] == 1
     assert rm_summary["kyc_pending"] == 2
     assert rm_summary["payeezz_pending"] == 2
@@ -128,6 +134,8 @@ async def test_dashboard_summary_and_family_summary_match_canonical_html_style_c
     assert family["family_code"] == "FAM-ALPHA"
     assert family["number_of_members"] == 3
     assert family["total_cans"] == 3
+    assert family["can_completion_pct"] == 100
+    assert family["can_pending_pct"] == 0
     assert family["kyc_completion_pct"] == 33
     assert family["payeezz_completion_pct"] == 33
     assert family["mobile_verification_pct"] == 33
@@ -284,6 +292,10 @@ async def test_empty_dashboard_tasks_and_zero_member_family_return_zeroes(
     assert empty_summary.json() == {
         "total_clients": 0,
         "total_families": 0,
+        "can_available": 0,
+        "can_pending": 0,
+        "can_available_pct": 0,
+        "can_pending_pct": 0,
         "kyc_verified": 0,
         "kyc_pending_rekyc": 0,
         "kyc_not_started": 0,
@@ -315,6 +327,8 @@ async def test_empty_dashboard_tasks_and_zero_member_family_return_zeroes(
     }
     assert family_summary.json()["number_of_members"] == 0
     assert family_summary.json()["total_cans"] == 0
+    assert family_summary.json()["can_completion_pct"] == 0
+    assert family_summary.json()["can_pending_pct"] == 0
     assert family_summary.json()["kyc_completion_pct"] == 0
     assert family_summary.json()["payeezz_completion_pct"] == 0
     assert family_summary.json()["mobile_verification_pct"] == 0

@@ -128,6 +128,10 @@ export type ImportRowListResponse = {
 export type DashboardSummary = {
   total_clients: number;
   total_families: number;
+  can_available: number;
+  can_pending: number;
+  can_available_pct: number;
+  can_pending_pct: number;
   kyc_verified: number;
   kyc_pending_rekyc: number;
   kyc_not_started: number;
@@ -158,11 +162,15 @@ export type Family = {
   total_cans: number;
   last_updated_at: string;
   remarks: string | null;
+  can_completion: CountPercentage;
+  can_pending: CountPercentage;
   kyc_completion: CountPercentage;
   payeezz_completion: CountPercentage;
   mobile_verification: CountPercentage;
   email_verification: CountPercentage;
   nominee_verification: CountPercentage;
+  can_completion_pct: number;
+  can_pending_pct: number;
   kyc_completion_pct: number;
   payeezz_completion_pct: number;
   mobile_verification_pct: number;
@@ -225,6 +233,8 @@ export type FamilyDashboard = {
   last_updated_at: string;
   number_of_members: number;
   total_cans: number;
+  can_completion_pct: number;
+  can_pending_pct: number;
   kyc_completion_pct: number;
   mobile_verification_pct: number;
   email_verification_pct: number;

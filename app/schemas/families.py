@@ -24,6 +24,8 @@ def optional_stripped(value: str | None) -> str | None:
 
 class FamilyStatusFilter(str, Enum):
     ALL = "all"
+    CAN_AVAILABLE = "can_available"
+    CAN_PENDING = "can_pending"
     KYC_PENDING = "kyc_pending"
     PAYEEZZ_PENDING = "payeezz_pending"
     CONTACT_PENDING = "contact_pending"
@@ -94,11 +96,15 @@ class FamilyRead(BaseModel):
     total_cans: int
     last_updated_at: datetime
     remarks: str | None = None
+    can_completion: CountPercentageRead
+    can_pending: CountPercentageRead
     kyc_completion: CountPercentageRead
     payeezz_completion: CountPercentageRead
     mobile_verification: CountPercentageRead
     email_verification: CountPercentageRead
     nominee_verification: CountPercentageRead
+    can_completion_pct: int = Field(ge=0, le=100)
+    can_pending_pct: int = Field(ge=0, le=100)
     kyc_completion_pct: int = Field(ge=0, le=100)
     payeezz_completion_pct: int = Field(ge=0, le=100)
     mobile_verification_pct: int = Field(ge=0, le=100)

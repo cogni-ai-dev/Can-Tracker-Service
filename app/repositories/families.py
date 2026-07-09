@@ -87,6 +87,10 @@ def _search_filter(q: str | None, settings: Settings) -> object | None:
 def _status_filter(status_filter: str | None) -> object | None:
     if status_filter in (None, "all"):
         return None
+    if status_filter == "can_available":
+        return active_member_exists(Member.can_status == CanStatus.AVAILABLE.value, Member.can_number.is_not(None))
+    if status_filter == "can_pending":
+        return active_member_exists((Member.can_status == CanStatus.PENDING.value) | Member.can_number.is_(None))
     if status_filter == "kyc_pending":
         return active_member_exists(Member.kyc_status.in_([KycStatus.PENDING_REKYC.value, KycStatus.NOT_STARTED.value]))
     if status_filter == "payeezz_pending":

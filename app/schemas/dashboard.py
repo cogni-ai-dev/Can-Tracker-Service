@@ -10,6 +10,10 @@ from app.schemas.members import MemberRead
 class DashboardSummaryRead(BaseModel):
     total_clients: int = Field(ge=0)
     total_families: int = Field(ge=0)
+    can_available: int = Field(ge=0)
+    can_pending: int = Field(ge=0)
+    can_available_pct: int = Field(ge=0, le=100)
+    can_pending_pct: int = Field(ge=0, le=100)
     kyc_verified: int = Field(ge=0)
     kyc_pending_rekyc: int = Field(ge=0)
     kyc_not_started: int = Field(ge=0)
@@ -42,6 +46,8 @@ class FamilyDashboardSummaryRead(BaseModel):
     last_updated_at: datetime
     number_of_members: int = Field(ge=0)
     total_cans: int = Field(ge=0)
+    can_completion_pct: int = Field(ge=0, le=100)
+    can_pending_pct: int = Field(ge=0, le=100)
     kyc_completion_pct: int = Field(ge=0, le=100)
     mobile_verification_pct: int = Field(ge=0, le=100)
     email_verification_pct: int = Field(ge=0, le=100)

@@ -623,9 +623,19 @@ async def test_search_and_filters_cover_family_member_rm_and_status_fields(
         family_by_can = await client.get("/api/v1/families?q=CAN-BETA")
         family_by_pan = await client.get("/api/v1/families?q=ABCDE1234F")
         family_kyc_pending = await client.get("/api/v1/families?status_filter=kyc_pending")
+        family_can_available = await client.get("/api/v1/families?status_filter=can_available")
         family_nominee_pending = await client.get("/api/v1/families?status_filter=nominee_pending")
         family_payeezz_done = await client.get("/api/v1/families?payeezz_mandate_status=Approved")
         family_rm = await client.get(f"/api/v1/families?rm_id={rm_two.id}")
+
+        await create_member(
+            client,
+            family_id=alpha["id"],
+            name="Alice Pending CAN",
+            can_number=None,
+            pan="LMNOP1234Q",
+        )
+        family_can_pending = await client.get("/api/v1/families?status_filter=can_pending")
 
         member_by_family = await client.get(f"/api/v1/members?family_id={alpha['id']}")
         member_by_search_pan = await client.get("/api/v1/members?q=XYZAB9876C")
@@ -637,10 +647,14 @@ async def test_search_and_filters_cover_family_member_rm_and_status_fields(
     assert [item["family_code"] for item in family_by_can.json()["items"]] == ["FAM-BETA"]
     assert [item["family_code"] for item in family_by_pan.json()["items"]] == ["FAM-ALPHA"]
     assert [item["family_code"] for item in family_kyc_pending.json()["items"]] == ["FAM-ALPHA"]
+    assert [item["family_code"] for item in family_can_available.json()["items"]] == ["FAM-ALPHA", "FAM-BETA"]
+    assert [item["family_code"] for item in family_can_pending.json()["items"]] == ["FAM-ALPHA"]
+    assert family_can_pending.json()["items"][0]["can_pending"]["count"] == 1
+    assert family_can_pending.json()["items"][0]["can_pending_pct"] == 50
     assert [item["family_code"] for item in family_nominee_pending.json()["items"]] == ["FAM-ALPHA"]
     assert [item["family_code"] for item in family_payeezz_done.json()["items"]] == ["FAM-BETA"]
     assert [item["family_code"] for item in family_rm.json()["items"]] == ["FAM-BETA"]
-    assert [item["can_number"] for item in member_by_family.json()["items"]] == ["CAN-ALPHA"]
+    assert [item.get("can_number") for item in member_by_family.json()["items"]] == ["CAN-ALPHA", None]
     assert [item["can_number"] for item in member_by_search_pan.json()["items"]] == ["CAN-BETA"]
     assert [item["can_number"] for item in member_by_nominee.json()["items"]] == ["CAN-ALPHA"]
     assert [item["can_number"] for item in member_mobile_pending.json()["items"]] == ["CAN-ALPHA"]
