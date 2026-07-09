@@ -4,7 +4,17 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { App } from './App';
-import type { CurrentUser, DashboardSummary, Family, Member, TaskItem, TaskSummary, UserRecord } from './types';
+import type {
+  CurrentUser,
+  DashboardSummary,
+  Family,
+  ImportBatch,
+  ImportRow,
+  Member,
+  TaskItem,
+  TaskSummary,
+  UserRecord,
+} from './types';
 
 const rm: UserRecord = {
   id: 'rm-1',
@@ -190,6 +200,59 @@ const task: TaskItem = {
   label: 'KYC Pending',
 };
 
+const importBatch: ImportBatch = {
+  id: 'import-batch-1',
+  file_name: 'Can sample data import-ready.xlsx',
+  file_sha256: 'hash-1',
+  uploaded_by_user_id: 'user-can',
+  status: 'validated',
+  row_count: 2,
+  valid_row_count: 1,
+  error_row_count: 1,
+  conflict_row_count: 0,
+  committed_row_count: 0,
+  warnings: ['One row has a duplicate nominee'],
+  errors: [],
+  created_at: '2026-01-02T00:00:00Z',
+  committed_at: null,
+};
+
+const importRows: ImportRow[] = [
+  {
+    id: 'row-1',
+    import_batch_id: importBatch.id,
+    row_number: 2,
+    raw_data: { CANNumber: 'CAN001' },
+    normalized_data: {
+      FamilyCode: 'FAM-001',
+      FamilyHeadName: 'Shah Family',
+      MemberName: 'Nisha Shah',
+      CANNumber: 'CAN001',
+    },
+    status: 'valid',
+    errors: [],
+    family_id: family.id,
+    member_id: member.id,
+    created_at: '2026-01-02T00:00:00Z',
+  },
+  {
+    id: 'row-2',
+    import_batch_id: importBatch.id,
+    row_number: 4,
+    raw_data: { CANNumber: 'CAN002' },
+    normalized_data: {
+      FamilyHeadName: 'Shah Family',
+      MemberName: 'Karan Patel',
+      FamilyCode: 'FAM-001',
+    },
+    status: 'error',
+    errors: ['Invalid PayEezz status'],
+    family_id: null,
+    member_id: null,
+    created_at: '2026-01-02T00:00:00Z',
+  },
+];
+
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -199,10 +262,14 @@ function json(data: unknown, status = 200) {
 
 function installFetch(user: CurrentUser) {
   const calls: string[] = [];
+  let activeImportBatch = importBatch;
+  let activeImportRows = importRows;
+
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), window.location.origin);
     const method = init?.method || 'GET';
     calls.push(`${method} ${url.pathname}${url.search}`);
+    const filterStatus = url.searchParams.get('status');
 
     if (url.pathname === '/api/v1/auth/me') return json(user);
     if (url.pathname === '/api/v1/rms') return json([rm]);
@@ -212,6 +279,38 @@ function installFetch(user: CurrentUser) {
     if (url.pathname === '/api/v1/families') return json({ items: [family], total: 1, limit: 500, offset: 0 });
     if (url.pathname === '/api/v1/members') return json({ items: [member], total: 1, limit: 500, offset: 0 });
     if (url.pathname === '/api/v1/users') return json([canUser, crmUser]);
+    if (url.pathname === '/api/v1/imports' && method === 'GET') {
+      if (filterStatus && filterStatus !== activeImportBatch.status) {
+        return json({ items: [], total: 0, limit: 100, offset: 0 });
+      }
+      return json({ items: [activeImportBatch], total: 1, limit: 100, offset: 0 });
+    }
+    if (url.pathname === `/api/v1/imports/${activeImportBatch.id}`) {
+      if (method === 'GET') return json(activeImportBatch);
+    }
+    if (url.pathname === `/api/v1/imports/${activeImportBatch.id}/rows` && method === 'GET') {
+      const rows = filterStatus ? activeImportRows.filter((row) => row.status === filterStatus) : activeImportRows;
+      return json({ items: rows, total: rows.length, limit: 1000, offset: 0 });
+    }
+    if (url.pathname === `/api/v1/imports/${activeImportBatch.id}/commit` && method === 'POST') {
+      activeImportBatch = {
+        ...activeImportBatch,
+        status: 'committed',
+        committed_row_count: activeImportBatch.valid_row_count,
+        committed_at: '2026-01-02T00:10:00Z',
+      };
+      return json(activeImportBatch);
+    }
+    if (url.pathname === '/api/v1/imports/mfu-template/upload' && method === 'POST') {
+      activeImportBatch = {
+        ...importBatch,
+        id: 'upload-batch',
+        file_name: 'sample-upload.xlsx',
+        uploaded_by_user_id: user.id,
+        status: 'validated',
+      };
+      return json(activeImportBatch, 201);
+    }
     if (url.pathname === '/api/v1/admin/can-sensitive-access') {
       if (method === 'PATCH') {
         return json(JSON.parse(String(init?.body || '{}')));
@@ -369,6 +468,47 @@ describe('MFU Operations Portal shell', () => {
     expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Delete Family' })).not.toBeInTheDocument();
+  });
+
+  it('renders MFU Import panel for import-capable users', async () => {
+    renderApp('#/admin/imports', canOpsUser);
+
+    expect(await screen.findByRole('heading', { name: 'MFU Import' })).toBeInTheDocument();
+    expect(screen.getAllByText('Can sample data import-ready.xlsx').length).toBeGreaterThan(0);
+    expect(screen.getByText('Upload New Template')).toBeInTheDocument();
+    expect(screen.getByText(/Valid: 1/i)).toBeInTheDocument();
+  });
+
+  it('uploads import workbook, filters rows, and commits validated batch', async () => {
+    const user = userEvent.setup();
+    const calls = renderApp('#/admin/imports', canOpsUser);
+    expect(await screen.findByRole('heading', { name: 'MFU Import' })).toBeInTheDocument();
+
+    const fileInput = screen.getByLabelText('Select CSV / XLSX');
+    const file = new File(['sample-data'], 'Can sample.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    await user.upload(fileInput, file);
+
+    await user.click(screen.getByRole('button', { name: 'Upload' }));
+    await waitFor(() => expect(calls).toContain('POST /api/v1/imports/mfu-template/upload'));
+    expect(await screen.findByText('Upload complete. Review validated rows before committing.')).toBeInTheDocument();
+    const rows = await screen.findAllByText('sample-upload.xlsx');
+    expect(rows.length).toBeGreaterThan(0);
+
+    await user.selectOptions(screen.getByLabelText('Filter rows by status'), 'error');
+    expect(await screen.findByText('Invalid PayEezz status')).toBeInTheDocument();
+
+    const commitButton = await screen.findByRole('button', { name: 'Commit Valid Rows' });
+    expect(commitButton).toBeEnabled();
+    await user.click(commitButton);
+    await waitFor(() => expect(calls.some((call) => call.includes('/api/v1/imports/') && call.includes('/commit') && call.startsWith('POST '))).toBe(true));
+    expect(await screen.findByText('Batch sample-upload.xlsx committed successfully.')).toBeInTheDocument();
+  });
+
+  it('keeps users without import role out of admin import route', async () => {
+    renderApp('#/admin/imports', rm);
+
+    expect(await screen.findByRole('heading', { name: 'Compliance Dashboard' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'MFU Import' })).not.toBeInTheDocument();
   });
 
   it('renders unassigned family details without an RM', async () => {

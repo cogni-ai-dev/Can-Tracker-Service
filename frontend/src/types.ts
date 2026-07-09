@@ -78,6 +78,53 @@ export type ReportType =
   | 'full';
 export type ReportExportFormat = 'csv' | 'xlsx' | 'pdf';
 
+export type ImportBatchStatus = 'uploaded' | 'validated' | 'committed' | 'failed';
+export type ImportRowStatus = 'valid' | 'error' | 'conflict' | 'committed' | 'skipped';
+
+export type ImportBatch = {
+  id: string;
+  file_name: string;
+  file_sha256: string;
+  uploaded_by_user_id: string;
+  status: ImportBatchStatus;
+  row_count: number;
+  valid_row_count: number;
+  error_row_count: number;
+  conflict_row_count: number;
+  committed_row_count: number;
+  warnings: string[];
+  errors: string[];
+  created_at: string;
+  committed_at: string | null;
+};
+
+export type ImportBatchListResponse = {
+  items: ImportBatch[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type ImportRow = {
+  id: string;
+  import_batch_id: string;
+  row_number: number;
+  raw_data: Record<string, unknown>;
+  normalized_data: Record<string, unknown>;
+  status: ImportRowStatus;
+  errors: string[];
+  family_id: string | null;
+  member_id: string | null;
+  created_at: string;
+};
+
+export type ImportRowListResponse = {
+  items: ImportRow[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
 export type DashboardSummary = {
   total_clients: number;
   total_families: number;

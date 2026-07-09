@@ -24,6 +24,10 @@ export function canManageUsers(user: CurrentUser | null) {
     || hasModuleRole(user, 'client_crm', ['crm_admin']);
 }
 
+export function canUseImportPanel(user: CurrentUser | null) {
+  return hasModuleRole(user, 'can_compliance', ['can_admin', 'can_ops']);
+}
+
 export function canAdministerUserModule(user: CurrentUser | null, moduleCode: ModuleCode) {
   if (!user) return false;
   if (user.is_platform_admin) return true;

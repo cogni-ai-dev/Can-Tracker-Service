@@ -2,6 +2,10 @@ import type {
   CurrentUser,
   CanSensitiveAccessSettings,
   DashboardSummary,
+  ImportBatch,
+  ImportBatchListResponse,
+  ImportRow,
+  ImportRowListResponse,
   Family,
   FamilyDashboard,
   FamilyPayload,
@@ -51,11 +55,12 @@ export class ApiError extends Error {
 }
 
 async function request<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
+  const isFormData = options.body instanceof FormData;
   const response = await fetch(buildUrl(path, options.params), {
     method,
     credentials: 'include',
-    headers: options.body === undefined ? {} : { 'Content-Type': 'application/json' },
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    headers: options.body === undefined || isFormData ? {} : { 'Content-Type': 'application/json' },
+    body: options.body === undefined || isFormData ? (options.body as FormData | undefined) : JSON.stringify(options.body),
     signal: options.signal,
   });
   if (response.status === 204) return undefined as T;
@@ -176,4 +181,16 @@ export const usersApi = {
   create: (payload: UserPayload) => api.post<UserRecord>('/users', payload),
   update: (userId: string, payload: UserPayload) => api.patch<UserRecord>(`/users/${userId}`, payload),
   deactivate: (userId: string) => api.delete<void>(`/users/${userId}`),
+};
+
+export const importsApi = {
+  listBatches: (params?: { status?: string; limit?: number; offset?: number }) => api.get<ImportBatchListResponse>('/imports', params),
+  getBatch: (batchId: string) => api.get<ImportBatch>(`/imports/${batchId}`),
+  listRows: (batchId: string, params?: { status?: string; limit?: number; offset?: number }) => api.get<ImportRowListResponse>(`/imports/${batchId}/rows`, params),
+  commitBatch: (batchId: string) => api.post<ImportBatch>(`/imports/${batchId}/commit`),
+  uploadTemplate: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post<ImportBatch>('/imports/mfu-template/upload', formData);
+  },
 };

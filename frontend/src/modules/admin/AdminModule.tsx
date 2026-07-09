@@ -1,10 +1,33 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { Pencil, Plus, RotateCcw, ShieldCheck, Trash2 } from 'lucide-react';
+import { useParams } from 'react-router-dom';
+import {
+  FileUp,
+  Pencil,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  ShieldCheck,
+  Trash2,
+} from 'lucide-react';
 
 import { Badge, Card, ConfirmActionDialog, EmptyState, PageHeader } from '../../components/ui';
-import { usersApi } from '../../lib/api';
-import { canAdministerUserModule, canManageUsers, canRoleToUserRole, effectiveMemberships } from '../../lib/access';
-import type { CanSensitiveAccess, CanSensitiveAccessSettings, CurrentUser, ModuleCode, ModuleRole, UserMembership, UserPayload, UserRecord, UserRole } from '../../types';
+import { importsApi, usersApi } from '../../lib/api';
+import { canAdministerUserModule, canManageUsers, canRoleToUserRole, canUseImportPanel, effectiveMemberships } from '../../lib/access';
+import type {
+  CanSensitiveAccess,
+  CanSensitiveAccessSettings,
+  CurrentUser,
+  ImportBatch,
+  ImportBatchStatus,
+  ImportRow,
+  ImportRowStatus,
+  ModuleCode,
+  ModuleRole,
+  UserMembership,
+  UserPayload,
+  UserRecord,
+  UserRole,
+} from '../../types';
 
 const userRoleLabels: Record<UserRole, string> = {
   admin: 'Platform Admin',
@@ -74,7 +97,27 @@ const moduleRoleHelpText: Record<ModuleRole, string> = {
 
 type UserModalState = { mode: 'create'; user?: undefined } | { mode: 'edit'; user: UserRecord } | null;
 
+type ImportPanelFilters = {
+  batchStatus: '' | ImportBatchStatus;
+  rowStatus: '' | ImportRowStatus;
+};
+
 export function AdminModule({ user }: { user: CurrentUser }) {
+  const { page = 'users' } = useParams<{ page?: string }>();
+  if (page === 'imports') {
+    if (!canUseImportPanel(user)) {
+      return <EmptyState title="Admin access required" detail="You do not have permissions to access MFU import." />;
+    }
+    return <AdminImportPanel user={user} />;
+  }
+
+  if (!canManageUsers(user)) {
+    return <EmptyState title="Admin access required" detail="You do not have permissions to manage users." />;
+  }
+  return <UserManagementPanel user={user} />;
+}
+
+function UserManagementPanel({ user }: { user: CurrentUser }) {
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -426,6 +469,322 @@ function UserModal({
       </form>
     </div>
   );
+}
+
+function AdminImportPanel({ user }: { user: CurrentUser }) {
+  const [batches, setBatches] = useState<ImportBatch[]>([]);
+  const [batchLoading, setBatchLoading] = useState(true);
+  const [batchError, setBatchError] = useState('');
+  const [batchFilters, setBatchFilters] = useState<ImportPanelFilters>({ batchStatus: '', rowStatus: '' });
+  const [selectedBatchId, setSelectedBatchId] = useState('');
+  const [rows, setRows] = useState<ImportRow[]>([]);
+  const [rowLoading, setRowLoading] = useState(false);
+  const [rowError, setRowError] = useState('');
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const [commitBusy, setCommitBusy] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [message, setMessage] = useState('');
+  const [refreshToken, setRefreshToken] = useState(0);
+
+  const canImport = canUseImportPanel(user);
+  const selectedBatch = batches.find((batch) => batch.id === selectedBatchId) || batches[0] || null;
+
+  useEffect(() => {
+    if (!canImport) return;
+    let cancelled = false;
+    setBatchLoading(true);
+    setBatchError('');
+    const params = batchFilters.batchStatus ? { status: batchFilters.batchStatus } : {};
+    importsApi.listBatches({ ...params, limit: 100, offset: 0 })
+      .then((response) => {
+        if (cancelled) return;
+        setBatches(response.items);
+        if (!response.items.length) {
+          setSelectedBatchId('');
+          return;
+        }
+        const stillExists = response.items.some((batch) => batch.id === selectedBatchId);
+        if (!selectedBatchId || !stillExists) {
+          setSelectedBatchId(response.items[0].id);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) setBatchError(friendlyError(error));
+      })
+      .finally(() => {
+        if (!cancelled) setBatchLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [batchFilters.batchStatus, canImport, refreshToken, selectedBatchId]);
+
+  useEffect(() => {
+    if (!canImport) return;
+    const batchId = selectedBatchId || (batches[0] && batches[0].id);
+    if (!batchId) {
+      setRows([]);
+      return;
+    }
+    let cancelled = false;
+    setRowLoading(true);
+    setRowError('');
+    const params = batchFilters.rowStatus ? { status: batchFilters.rowStatus, limit: 1000, offset: 0 } : { limit: 1000, offset: 0 };
+    importsApi.listRows(batchId, params)
+      .then((response) => {
+        if (!cancelled) setRows(response.items);
+      })
+      .catch((error) => {
+        if (!cancelled) setRowError(friendlyError(error));
+      })
+      .finally(() => {
+        if (!cancelled) setRowLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedBatchId, batches, batchFilters.rowStatus, canImport, refreshToken]);
+
+  function refresh(options: { clearMessage?: boolean } = {}) {
+    setRefreshToken((value) => value + 1);
+    if (options.clearMessage !== false) setMessage('');
+    setRowError('');
+  }
+
+  async function uploadBatch() {
+    if (!selectedFile) return;
+    if (!canImport) return;
+    setUploadBusy(true);
+    setBatchError('');
+    setMessage('');
+    try {
+      const uploaded = await importsApi.uploadTemplate(selectedFile);
+      setSelectedBatchId(uploaded.id);
+      setSelectedFile(null);
+      setMessage('Upload complete. Review validated rows before committing.');
+      refresh({ clearMessage: false });
+    } catch (error) {
+      setBatchError(friendlyError(error));
+    } finally {
+      setUploadBusy(false);
+    }
+  }
+
+  async function commitBatch() {
+    if (!selectedBatch || selectedBatch.status !== 'validated' || selectedBatch.valid_row_count <= 0 || selectedBatch.errors.length > 0 || commitBusy) return;
+    setCommitBusy(true);
+    try {
+      const committed = await importsApi.commitBatch(selectedBatch.id);
+      setMessage(`Batch ${committed.file_name} committed successfully.`);
+      refresh({ clearMessage: false });
+    } catch (error) {
+      setMessage(friendlyError(error));
+    } finally {
+      setCommitBusy(false);
+    }
+  }
+
+  if (!canImport) {
+    return <EmptyState title="Import access required" detail="You do not have permissions to access MFU import." />;
+  }
+
+  return (
+    <div>
+      <PageHeader
+        title="MFU Import"
+        subtitle="Upload and validate MFU template files, review row status, then commit valid rows."
+        action={(
+          <button
+            type="button"
+            onClick={() => {
+              setMessage('');
+              refresh();
+            }}
+            className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            <RefreshCw size={16} /> Refresh
+          </button>
+        )}
+      />
+
+      {message && <div className="mb-4 rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-700">{message}</div>}
+
+      <Card className="mb-4">
+        <div className="mb-3 font-semibold text-slate-900">Upload New Template</div>
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="grow text-sm font-medium text-slate-700">
+            Select CSV / XLSX
+            <input
+              type="file"
+              accept=".csv,.xlsx"
+              className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              onChange={(event) => setSelectedFile(event.target.files?.[0] || null)}
+            />
+          </label>
+          <button
+            type="button"
+            disabled={!selectedFile || uploadBusy}
+            onClick={uploadBatch}
+            className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            <FileUp size={16} />
+            {uploadBusy ? 'Uploading...' : 'Upload'}
+          </button>
+        </div>
+        {selectedFile && <div className="mt-2 text-sm text-slate-500">Selected file: {selectedFile.name}</div>}
+      </Card>
+
+      <Card className="mb-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="font-semibold text-slate-900">Import Batches</div>
+            <div className="text-sm text-slate-500">Select a batch to review row-level results.</div>
+          </div>
+          <select
+            aria-label="Filter batches by status"
+            value={batchFilters.batchStatus}
+            onChange={(event) => setBatchFilters((current) => ({ ...current, batchStatus: event.target.value as ImportPanelFilters['batchStatus'] }))}
+            className={selectClass}
+          >
+            <option value="">All statuses</option>
+            <option value="uploaded">Uploaded</option>
+            <option value="validated">Validated</option>
+            <option value="committed">Committed</option>
+            <option value="failed">Failed</option>
+          </select>
+        </div>
+        {batchError && <div className="mb-3 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{batchError}</div>}
+        {batchLoading && <div className="text-sm text-slate-500">Loading batches...</div>}
+        {selectedBatch && (
+          <div className="mb-4 rounded-md bg-slate-50 p-3 text-sm text-slate-700">
+            <div className="font-medium text-slate-900">{selectedBatch.file_name}</div>
+            <div className="mt-1">Status: {formatImportStatus(selectedBatch.status)} | Valid: {selectedBatch.valid_row_count} | Errors: {selectedBatch.error_row_count} | Conflicts: {selectedBatch.conflict_row_count} | Committed: {selectedBatch.committed_row_count}</div>
+            <div className="mt-1">Created: {formatDate(selectedBatch.created_at)} | Committed: {selectedBatch.committed_at ? formatDate(selectedBatch.committed_at) : 'Not committed'}</div>
+            {!!selectedBatch.warnings.length && <div className="mt-2 text-slate-600">Warnings: {selectedBatch.warnings.join(', ')}</div>}
+            {!!selectedBatch.errors.length && <div className="mt-1 text-rose-700">Batch Errors: {selectedBatch.errors.join(' | ')}</div>}
+          </div>
+        )}
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+              <tr>
+                <th className="px-3 py-2">File</th>
+                <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2">Rows</th>
+                <th className="px-3 py-2">Created</th>
+                <th className="px-3 py-2">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {batches.map((batch) => (
+                <tr key={batch.id} className={batch.id === selectedBatchId ? 'bg-blue-50' : ''}>
+                  <td className="px-3 py-2">{batch.file_name}</td>
+                  <td className="px-3 py-2"><span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs">{batch.status}</span></td>
+                  <td className="px-3 py-2">{batch.row_count}</td>
+                  <td className="px-3 py-2">{formatDate(batch.created_at)}</td>
+                  <td className="px-3 py-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedBatchId(batch.id)}
+                      className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      Open
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {!batches.length && <tr><td className="px-3 py-8 text-center text-slate-500" colSpan={5}>No batches found.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      <Card>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="text-sm font-semibold text-slate-900">Batch Rows</div>
+            <div className="text-sm text-slate-500">{selectedBatch ? `Rows for ${selectedBatch.file_name}` : 'Upload/select a batch to view rows.'}</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <select
+              aria-label="Filter rows by status"
+              value={batchFilters.rowStatus}
+              onChange={(event) => setBatchFilters((current) => ({ ...current, rowStatus: event.target.value as ImportPanelFilters['rowStatus'] }))}
+              className={selectClass}
+            >
+              <option value="">All rows</option>
+              <option value="valid">Valid</option>
+              <option value="error">Error</option>
+              <option value="conflict">Conflict</option>
+              <option value="committed">Committed</option>
+              <option value="skipped">Skipped</option>
+            </select>
+            <button
+              type="button"
+              disabled={
+                !selectedBatch
+                || selectedBatch.status !== 'validated'
+                || selectedBatch.valid_row_count <= 0
+                || selectedBatch.errors.length > 0
+                || commitBusy
+              }
+              onClick={commitBatch}
+              className="rounded-md bg-green-600 px-3 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50"
+            >
+              {commitBusy ? 'Committing...' : 'Commit Valid Rows'}
+            </button>
+          </div>
+        </div>
+        {rowError && <div className="mb-3 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{rowError}</div>}
+        {rowLoading && <div className="text-sm text-slate-500">Loading rows...</div>}
+        {!selectedBatch && <div className="text-sm text-slate-500">Upload and select a batch first.</div>}
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+              <tr>
+                <th className="px-3 py-2">Row</th>
+                <th className="px-3 py-2">Family Code</th>
+                <th className="px-3 py-2">Family Head</th>
+                <th className="px-3 py-2">Member</th>
+                <th className="px-3 py-2">CAN</th>
+                <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2">Errors</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {rows.map((row) => (
+                <tr key={row.id}>
+                  <td className="px-3 py-2">{row.row_number}</td>
+                  <td className="px-3 py-2">{String(asString(row.normalized_data.family_code) || asString(row.normalized_data.FamilyCode) || '-')}</td>
+                  <td className="px-3 py-2">{String(asString(row.normalized_data.family_head_name) || asString(row.normalized_data.FamilyHeadName) || '-')}</td>
+                  <td className="px-3 py-2">{String(asString(row.normalized_data.member_name) || asString(row.normalized_data.MemberName) || '-')}</td>
+                  <td className="px-3 py-2">{String(asString(row.normalized_data.can_number) || asString(row.normalized_data.CANNumber) || '-')}</td>
+                  <td className="px-3 py-2"><span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs">{row.status}</span></td>
+                  <td className="px-3 py-2 text-slate-500">{row.errors.join('; ') || '-'}</td>
+                </tr>
+              ))}
+              {!rows.length && !rowLoading && (
+                <tr>
+                  <td className="px-3 py-6 text-center text-slate-500" colSpan={7}>{selectedBatch ? 'No rows match the current filter.' : 'Upload/select a batch first.'}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function asString(value: unknown) {
+  return typeof value === 'string' ? value : null;
+}
+
+function formatImportStatus(status: ImportBatchStatus) {
+  if (status === 'uploaded') return 'Uploaded';
+  if (status === 'validated') return 'Validated';
+  if (status === 'committed') return 'Committed';
+  return 'Failed';
 }
 
 function RoleAccessGuide() {

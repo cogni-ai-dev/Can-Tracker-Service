@@ -17,7 +17,7 @@ import {
 
 import { Badge } from './components/ui';
 import { authApi } from './lib/api';
-import { canAccessModule, canManageUsers } from './lib/access';
+import { canAccessModule, canManageUsers, canUseImportPanel } from './lib/access';
 import { AdminModule } from './modules/admin/AdminModule';
 import { ComplianceModule } from './modules/compliance/ComplianceModule';
 import { ClientCrmModule } from './modules/crm/ClientCrmModule';
@@ -144,6 +144,14 @@ function LoginScreen({ onLogin }: { onLogin: (user: CurrentUser) => void }) {
 function Shell({ user, onLogout }: { user: CurrentUser; onLogout: () => void }) {
   const location = useLocation();
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const adminLinks: Array<[string, string, LucideIcon]> = [];
+
+  if (canManageUsers(user)) {
+    adminLinks.push(['Users & Access', '/admin/users', Settings]);
+  }
+  if (canUseImportPanel(user)) {
+    adminLinks.push(['MFU Import', '/admin/imports', FileText]);
+  }
 
   async function logout() {
     await authApi.logout().catch(() => undefined);
@@ -175,10 +183,10 @@ function Shell({ user, onLogout }: { user: CurrentUser; onLogout: () => void }) 
             links={[['Reports', '/reports', FileText]]}
             currentPath={location.pathname}
           />
-          {canManageUsers(user) && (
+          {(canManageUsers(user) || canUseImportPanel(user)) && (
             <NavSection
               title="Admin"
-              links={[['Users & Access', '/admin/users', Settings]]}
+              links={adminLinks}
               currentPath={location.pathname}
             />
           )}
@@ -219,7 +227,7 @@ function Shell({ user, onLogout }: { user: CurrentUser; onLogout: () => void }) 
           <Route path="/reports" element={<ReportsModule />} />
           <Route
             path="/admin/:page"
-            element={canManageUsers(user) ? <AdminModule user={user} /> : <Navigate to={defaultRoute} replace />}
+            element={(canManageUsers(user) || canUseImportPanel(user)) ? <AdminModule user={user} /> : <Navigate to={defaultRoute} replace />}
           />
           <Route path="*" element={<Navigate to={defaultRoute} replace />} />
         </Routes>
