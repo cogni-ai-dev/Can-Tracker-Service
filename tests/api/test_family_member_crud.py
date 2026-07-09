@@ -10,7 +10,7 @@ from app.core.security import hash_password
 from app.domain.enums import AuditAction, AuditEntityType, UserRole
 from app.main import create_app
 from app.models.audit import AuditLog
-from app.models.family import Family, Member
+from app.models.family import Family, Member, MemberBankAccount
 from app.models.user import User
 
 PASSWORD = "password123"
@@ -59,13 +59,21 @@ def member_payload(**overrides: object) -> dict[str, object]:
         "email": "client.one@example.test",
         "email_verification_status": "Verified",
         "nominee_verification_status": "Verified",
+        "remarks": "Initial record",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def bank_account_payload(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
         "bank_name": "HDFC Bank",
-        "bank_account_number": "001122334455",
+        "account_number": "001122334455",
         "ifsc_code": "HDFC0123456",
+        "is_primary": True,
         "payeezz_mandate_status": "Approved",
         "payeezz_amount": "1000.00",
         "payeezz_start_date": "2026-01-01",
-        "remarks": "Initial record",
     }
     payload.update(overrides)
     return payload
@@ -97,9 +105,29 @@ async def create_member(
     family_id: str,
     **overrides: object,
 ) -> dict[str, object]:
-    response = await client.post(f"/api/v1/families/{family_id}/members", json=member_payload(**overrides))
+    bank_keys = {
+        "bank_name",
+        "bank_account_number",
+        "account_number",
+        "ifsc_code",
+        "is_primary",
+        "payeezz_mandate_status",
+        "payeezz_amount",
+        "payeezz_start_date",
+    }
+    member_overrides = {key: value for key, value in overrides.items() if key not in bank_keys}
+    bank_overrides = {key: value for key, value in overrides.items() if key in bank_keys}
+    response = await client.post(f"/api/v1/families/{family_id}/members", json=member_payload(**member_overrides))
     assert response.status_code == 201, response.text
-    return response.json()
+    member = response.json()
+    bank_payload = bank_account_payload(**bank_overrides)
+    if "bank_account_number" in bank_overrides:
+        bank_payload["account_number"] = bank_overrides["bank_account_number"]
+    bank_response = await client.post(f"/api/v1/members/{member['id']}/bank-accounts", json=bank_payload)
+    assert bank_response.status_code == 201, bank_response.text
+    refreshed = await client.get(f"/api/v1/members/{member['id']}")
+    assert refreshed.status_code == 200, refreshed.text
+    return refreshed.json()
 
 
 @pytest.mark.asyncio
@@ -122,7 +150,7 @@ async def test_admin_can_crud_family_and_member_with_masked_pii_and_audit(
         assert member["pan_masked"] == "ABCDE****F"
         assert member["mobile_masked"] == "******3210"
         assert member["email_masked"] == "c*********@e******.test"
-        assert member["bank_account_number_masked"] == "bank account ending 4455"
+        assert member["primary_bank_account"]["account_number_masked"] == "bank account ending 4455"
         assert "pan" not in member
         assert "bank_account_number" not in member
         assert member["updated_by"]["id"] == str(admin.id)
@@ -309,8 +337,8 @@ async def test_validation_and_active_uniqueness_for_families_and_members(
             json=member_payload(can_number="CAN-BAD-PAN", pan="bad-pan"),
         )
         invalid_ifsc = await client.post(
-            f"/api/v1/families/{family['id']}/members",
-            json=member_payload(can_number="CAN-BAD-IFSC", ifsc_code="BAD"),
+            f"/api/v1/members/{member['id']}/bank-accounts",
+            json=bank_account_payload(account_number="99887766", ifsc_code="BAD", bank_name="Bad IFSC Bank"),
         )
         invalid_rm = await client.post(
             "/api/v1/families",
@@ -337,6 +365,57 @@ async def test_validation_and_active_uniqueness_for_families_and_members(
     assert invalid_rm.status_code == 422
     assert reused_member.status_code == 201
     assert reused_family.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_member_bank_accounts_enforce_duplicate_and_primary_rules(
+    test_settings: Settings,
+    db_engine,
+    db_session: Session,
+) -> None:
+    admin = create_test_user(db_session, email="admin@example.test", role=UserRole.ADMIN)
+    rm = create_test_user(db_session, email="rm@example.test", role=UserRole.RM)
+
+    async with client_for(test_settings) as client:
+        assert (await login(client, admin.email)).status_code == 200
+        family = await create_family(client, rm_id=rm.id)
+        member = await create_member(client, family_id=family["id"])
+        primary = member["primary_bank_account"]
+
+        duplicate = await client.post(
+            f"/api/v1/members/{member['id']}/bank-accounts",
+            json=bank_account_payload(bank_name="HDFC Bank", account_number="001122334455"),
+        )
+        second = await client.post(
+            f"/api/v1/members/{member['id']}/bank-accounts",
+            json=bank_account_payload(
+                bank_name="ICICI Bank",
+                account_number="9988776655",
+                ifsc_code="ICIC0123456",
+                is_primary=False,
+                payeezz_mandate_status="Pending Approval",
+            ),
+        )
+        clear_primary = await client.patch(
+            f"/api/v1/members/{member['id']}/bank-accounts/{primary['id']}",
+            json={"is_primary": False},
+        )
+        delete_primary = await client.delete(f"/api/v1/members/{member['id']}/bank-accounts/{primary['id']}")
+        promote_second = await client.patch(
+            f"/api/v1/members/{member['id']}/bank-accounts/{second.json()['id']}",
+            json={"is_primary": True},
+        )
+        refreshed = await client.get(f"/api/v1/members/{member['id']}")
+
+    assert duplicate.status_code == 409
+    assert duplicate.json()["error"]["code"] == "bank_account_already_exists"
+    assert second.status_code == 201, second.text
+    assert clear_primary.status_code == 422
+    assert delete_primary.status_code == 422
+    assert promote_second.status_code == 200, promote_second.text
+    body = refreshed.json()
+    assert body["primary_bank_account"]["bank_name"] == "ICICI Bank"
+    assert sum(account["is_primary"] for account in body["bank_accounts"]) == 1
 
 
 @pytest.mark.asyncio
@@ -538,7 +617,7 @@ async def test_search_and_filters_cover_family_member_rm_and_status_fields(
 
 
 @pytest.mark.asyncio
-async def test_include_sensitive_is_admin_only_and_creates_sensitive_read_audit(
+async def test_role_based_sensitive_access_reveals_allowed_fields_and_audits(
     test_settings: Settings,
     db_engine,
     db_session: Session,
@@ -546,6 +625,7 @@ async def test_include_sensitive_is_admin_only_and_creates_sensitive_read_audit(
     admin = create_test_user(db_session, email="admin@example.test", role=UserRole.ADMIN)
     ops = create_test_user(db_session, email="ops@example.test", role=UserRole.OPS)
     rm = create_test_user(db_session, email="rm@example.test", role=UserRole.RM)
+    management = create_test_user(db_session, email="management@example.test", role=UserRole.MANAGEMENT)
 
     async with client_for(test_settings) as admin_client:
         assert (await login(admin_client, admin.email)).status_code == 200
@@ -556,10 +636,32 @@ async def test_include_sensitive_is_admin_only_and_creates_sensitive_read_audit(
             f"/api/v1/members/{member['id']}?include_sensitive=true",
             headers={"x-request-id": "req-sensitive"},
         )
+        settings_response = await admin_client.get("/api/v1/admin/can-sensitive-access")
+        update_settings_response = await admin_client.patch(
+            "/api/v1/admin/can-sensitive-access",
+            json={
+                "can_ops": {"pan": True, "mobile": True, "email": False, "bank_account_number": False},
+                "can_rm": {"pan": False, "mobile": True, "email": False, "bank_account_number": True},
+            },
+        )
 
     async with client_for(test_settings) as ops_client:
         assert (await login(ops_client, ops.email)).status_code == 200
-        blocked_response = await ops_client.get(f"/api/v1/members/{member['id']}?include_sensitive=true")
+        ops_sensitive_response = await ops_client.get(
+            f"/api/v1/members/{member['id']}?include_sensitive=true",
+            headers={"x-request-id": "req-sensitive-ops"},
+        )
+
+    async with client_for(test_settings) as rm_client:
+        assert (await login(rm_client, rm.email)).status_code == 200
+        rm_sensitive_response = await rm_client.get(
+            f"/api/v1/members/{member['id']}?include_sensitive=true",
+            headers={"x-request-id": "req-sensitive-rm"},
+        )
+
+    async with client_for(test_settings) as management_client:
+        assert (await login(management_client, management.email)).status_code == 200
+        management_response = await management_client.get(f"/api/v1/members/{member['id']}?include_sensitive=true")
 
     default_body = default_response.json()
     sensitive_body = sensitive_response.json()
@@ -567,8 +669,31 @@ async def test_include_sensitive_is_admin_only_and_creates_sensitive_read_audit(
     assert sensitive_body["pan"] == "ABCDE1234F"
     assert sensitive_body["mobile"] == "9876543210"
     assert sensitive_body["email"] == "client.one@example.test"
-    assert sensitive_body["bank_account_number"] == "001122334455"
-    assert blocked_response.status_code == 403
+    assert sensitive_body["primary_bank_account"]["account_number"] == "001122334455"
+    assert settings_response.status_code == 200
+    assert settings_response.json()["can_ops"] == {
+        "pan": True,
+        "mobile": True,
+        "email": True,
+        "bank_account_number": True,
+    }
+    assert settings_response.json()["can_rm"] == {
+        "pan": False,
+        "mobile": False,
+        "email": False,
+        "bank_account_number": False,
+    }
+    assert update_settings_response.status_code == 200
+    assert ops_sensitive_response.status_code == 200
+    assert ops_sensitive_response.json()["pan"] == "ABCDE1234F"
+    assert ops_sensitive_response.json()["mobile"] == "9876543210"
+    assert "email" not in ops_sensitive_response.json()
+    assert "account_number" not in ops_sensitive_response.json()["primary_bank_account"]
+    assert rm_sensitive_response.status_code == 200
+    assert "pan" not in rm_sensitive_response.json()
+    assert rm_sensitive_response.json()["mobile"] == "9876543210"
+    assert rm_sensitive_response.json()["primary_bank_account"]["account_number"] == "001122334455"
+    assert management_response.status_code == 403
 
     db_session.expire_all()
     sensitive_logs = list(
@@ -581,9 +706,18 @@ async def test_include_sensitive_is_admin_only_and_creates_sensitive_read_audit(
             .order_by(AuditLog.field_name)
         )
     )
-    assert [log.field_name for log in sensitive_logs] == ["bank_account_number", "email", "mobile", "pan"]
-    assert {log.actor_user_id for log in sensitive_logs} == {admin.id}
-    assert {log.request_id for log in sensitive_logs} == {"req-sensitive"}
+    assert [log.field_name for log in sensitive_logs] == [
+        "bank_account_number",
+        "bank_account_number",
+        "email",
+        "mobile",
+        "mobile",
+        "mobile",
+        "pan",
+        "pan",
+    ]
+    assert {log.actor_user_id for log in sensitive_logs} == {admin.id, ops.id, rm.id}
+    assert {log.request_id for log in sensitive_logs} == {"req-sensitive", "req-sensitive-ops", "req-sensitive-rm"}
 
 
 @pytest.mark.asyncio

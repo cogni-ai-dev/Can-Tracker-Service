@@ -14,7 +14,7 @@ from app.domain.access import user_is_can_rm
 from app.domain.compliance import family_completion
 from app.domain.enums import KycStatus, PayeezzStatus, ReportExportFormat, ReportType, VerificationStatus
 from app.domain.reports import ReportDefinition, get_report_definition
-from app.models.family import Family, Member
+from app.models.family import Family, Member, MemberBankAccount
 from app.models.reporting import ReportExport
 from app.models.user import User
 from app.schemas.reports import ReportExportResult, ReportListFilters
@@ -113,7 +113,7 @@ def _report_member_filters(report_type: ReportType) -> list[object]:
     if report_type == ReportType.KYC_PENDING:
         return [Member.kyc_status != KycStatus.VERIFIED.value]
     if report_type == ReportType.PAYEEZZ_PENDING:
-        return [Member.payeezz_mandate_status != PayeezzStatus.APPROVED.value]
+        return [(MemberBankAccount.payeezz_mandate_status != PayeezzStatus.APPROVED.value) | MemberBankAccount.id.is_(None)]
     if report_type == ReportType.CONTACT_PENDING:
         return [
             (Member.mobile_verification_status == VerificationStatus.PENDING_VERIFICATION.value)
@@ -126,6 +126,10 @@ def _report_member_filters(report_type: ReportType) -> list[object]:
 def _member_row(member: Member) -> dict[str, Any]:
     family = member.family
     rm = family.primary_rm
+    primary_bank = next(
+        (account for account in member.bank_accounts if account.deleted_at is None and account.is_primary),
+        None,
+    )
     return {
         "name": member.name,
         "can_number": member.can_number,
@@ -136,10 +140,10 @@ def _member_row(member: Member) -> dict[str, Any]:
         "mobile_verification_status": member.mobile_verification_status,
         "email_verification_status": member.email_verification_status,
         "nominee_verification_status": member.nominee_verification_status,
-        "payeezz_mandate_status": member.payeezz_mandate_status,
-        "bank_name": member.bank_name,
-        "bank_account_number_masked": member.bank_account_number_masked,
-        "ifsc_code": member.ifsc_code,
+        "payeezz_mandate_status": primary_bank.payeezz_mandate_status if primary_bank is not None else PayeezzStatus.NOT_STARTED.value,
+        "bank_name": primary_bank.bank_name if primary_bank is not None else None,
+        "bank_account_number_masked": primary_bank.account_number_masked if primary_bank is not None else None,
+        "ifsc_code": primary_bank.ifsc_code if primary_bank is not None else None,
         "family_head_name": family.family_head_name,
         "family_code": family.family_code,
         "rm_name": rm.name if rm is not None else UNASSIGNED_RM_NAME,
@@ -177,12 +181,29 @@ def _member_report_rows(
     offset: int,
 ) -> tuple[list[dict[str, Any]], int]:
     conditions = [*_member_filters(actor=actor, filters=filters), *_report_member_filters(report_type)]
-    total = db.scalar(select(func.count(Member.id)).select_from(Member).join(Member.family).where(*conditions)) or 0
+    total = db.scalar(
+        select(func.count(Member.id))
+        .select_from(Member)
+        .join(Member.family)
+        .outerjoin(
+            MemberBankAccount,
+            (MemberBankAccount.member_id == Member.id)
+            & MemberBankAccount.deleted_at.is_(None)
+            & MemberBankAccount.is_primary.is_(True),
+        )
+        .where(*conditions)
+    ) or 0
     statement = (
         select(Member)
         .select_from(Member)
         .join(Member.family)
-        .options(joinedload(Member.family).joinedload(Family.primary_rm))
+        .outerjoin(
+            MemberBankAccount,
+            (MemberBankAccount.member_id == Member.id)
+            & MemberBankAccount.deleted_at.is_(None)
+            & MemberBankAccount.is_primary.is_(True),
+        )
+        .options(joinedload(Member.family).joinedload(Family.primary_rm), selectinload(Member.bank_accounts))
         .where(*conditions)
         .order_by(Family.family_code, Member.name, Member.id)
         .offset(offset)
@@ -205,7 +226,7 @@ def _family_report_rows(
     total = db.scalar(select(func.count(Family.id)).where(*conditions)) or 0
     statement = (
         select(Family)
-        .options(selectinload(Family.members), selectinload(Family.primary_rm))
+        .options(selectinload(Family.members).selectinload(Member.bank_accounts), selectinload(Family.primary_rm))
         .where(*conditions)
         .order_by(Family.family_code, Family.id)
         .offset(offset)
@@ -230,7 +251,7 @@ def _rm_task_rows(
 ) -> tuple[list[dict[str, Any]], int]:
     conditions = _member_filters(actor=actor, filters=filters)
     kyc_count = _count_when(Member.kyc_status.in_([KycStatus.PENDING_REKYC.value, KycStatus.NOT_STARTED.value]))
-    payeezz_count = _count_when(Member.payeezz_mandate_status != PayeezzStatus.APPROVED.value)
+    payeezz_count = _count_when((MemberBankAccount.payeezz_mandate_status != PayeezzStatus.APPROVED.value) | MemberBankAccount.id.is_(None))
     mobile_count = _count_when(Member.mobile_verification_status == VerificationStatus.PENDING_VERIFICATION.value)
     email_count = _count_when(Member.email_verification_status == VerificationStatus.PENDING_VERIFICATION.value)
     nominee_count = _count_when(Member.nominee_verification_status == VerificationStatus.PENDING_VERIFICATION.value)
@@ -249,6 +270,12 @@ def _rm_task_rows(
         .select_from(Member)
         .join(Member.family)
         .outerjoin(User, Family.primary_rm_id == User.id)
+        .outerjoin(
+            MemberBankAccount,
+            (MemberBankAccount.member_id == Member.id)
+            & MemberBankAccount.deleted_at.is_(None)
+            & MemberBankAccount.is_primary.is_(True),
+        )
         .where(*conditions)
         .group_by(Family.primary_rm_id, User.name)
         .having(total_count > 0)

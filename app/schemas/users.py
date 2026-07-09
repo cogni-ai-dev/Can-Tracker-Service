@@ -1,10 +1,14 @@
 from datetime import datetime
 from uuid import UUID
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.domain.access import validate_membership_roles
 from app.domain.enums import ModuleCode, ModuleRole, UserRole
+
+CanSensitiveField = Literal["pan", "mobile", "email", "bank_account_number"]
 
 
 def normalize_email(value: str) -> str:
@@ -47,6 +51,7 @@ class UserRead(BaseModel):
     role: UserRole
     memberships: list[UserModuleMembershipRead] = Field(default_factory=list)
     module_codes: list[ModuleCode] = Field(default_factory=list)
+    can_sensitive_access: dict[CanSensitiveField, bool] = Field(default_factory=dict)
     is_platform_admin: bool = False
     is_active: bool
     last_login_at: datetime | None = None
@@ -147,3 +152,20 @@ class ChangePasswordRequest(BaseModel):
     @classmethod
     def validate_new_password(cls, value: str) -> str:
         return _non_blank(value, "New password")
+
+
+class CanSensitiveRoleAccess(BaseModel):
+    pan: bool = False
+    mobile: bool = False
+    email: bool = False
+    bank_account_number: bool = False
+
+
+class CanSensitiveAccessSettingsRead(BaseModel):
+    can_ops: CanSensitiveRoleAccess
+    can_rm: CanSensitiveRoleAccess
+
+
+class CanSensitiveAccessSettingsUpdate(BaseModel):
+    can_ops: CanSensitiveRoleAccess
+    can_rm: CanSensitiveRoleAccess

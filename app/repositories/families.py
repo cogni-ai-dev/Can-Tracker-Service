@@ -9,7 +9,7 @@ from app.core.config import Settings
 from app.core.pii import email_search_hash, mobile_search_hash, pan_search_hash
 from app.domain.access import user_is_can_rm
 from app.domain.enums import CanStatus, KycStatus, PayeezzStatus, VerificationStatus
-from app.models.family import Family, Member
+from app.models.family import Family, Member, MemberBankAccount
 from app.models.user import User
 
 
@@ -33,6 +33,31 @@ def active_member_exists(*criteria: object):
         )
         .exists()
     )
+
+
+def primary_payeezz_status_for_member():
+    return (
+        select(MemberBankAccount.payeezz_mandate_status)
+        .where(
+            MemberBankAccount.member_id == Member.id,
+            MemberBankAccount.deleted_at.is_(None),
+            MemberBankAccount.is_primary.is_(True),
+        )
+        .limit(1)
+        .scalar_subquery()
+    )
+
+
+def active_member_with_payeezz_status(status: object):
+    primary_status = primary_payeezz_status_for_member()
+    if status == PayeezzStatus.NOT_STARTED.value:
+        return active_member_exists((primary_status == status) | primary_status.is_(None))
+    return active_member_exists(primary_status == status)
+
+
+def active_member_payeezz_pending():
+    primary_status = primary_payeezz_status_for_member()
+    return active_member_exists((primary_status != PayeezzStatus.APPROVED.value) | primary_status.is_(None))
 
 
 def _status_value(value: object | None) -> object | None:
@@ -65,7 +90,7 @@ def _status_filter(status_filter: str | None) -> object | None:
     if status_filter == "kyc_pending":
         return active_member_exists(Member.kyc_status.in_([KycStatus.PENDING_REKYC.value, KycStatus.NOT_STARTED.value]))
     if status_filter == "payeezz_pending":
-        return active_member_exists(Member.payeezz_mandate_status != PayeezzStatus.APPROVED.value)
+        return active_member_payeezz_pending()
     if status_filter == "contact_pending":
         return active_member_exists(
             or_(
@@ -106,7 +131,7 @@ def family_filter_conditions(
     if kyc_status is not None:
         filters.append(active_member_exists(Member.kyc_status == _status_value(kyc_status)))
     if payeezz_mandate_status is not None:
-        filters.append(active_member_exists(Member.payeezz_mandate_status == _status_value(payeezz_mandate_status)))
+        filters.append(active_member_with_payeezz_status(_status_value(payeezz_mandate_status)))
     if mobile_verification_status is not None:
         filters.append(active_member_exists(Member.mobile_verification_status == _status_value(mobile_verification_status)))
     if email_verification_status is not None:
@@ -161,7 +186,7 @@ def list_families(
     items = list(
         db.scalars(
             select(Family)
-            .options(selectinload(Family.members), selectinload(Family.primary_rm))
+            .options(selectinload(Family.members).selectinload(Member.bank_accounts), selectinload(Family.primary_rm))
             .where(*filters)
             .order_by(_family_order_by(sort), Family.id)
             .limit(limit)
@@ -174,7 +199,7 @@ def list_families(
 def get_active_family(db: Session, family_id: UUID, user: User) -> Family | None:
     return db.scalar(
         select(Family)
-        .options(selectinload(Family.members), selectinload(Family.primary_rm))
+        .options(selectinload(Family.members).selectinload(Member.bank_accounts), selectinload(Family.primary_rm))
         .where(
             Family.id == family_id,
             *active_family_filters(user),

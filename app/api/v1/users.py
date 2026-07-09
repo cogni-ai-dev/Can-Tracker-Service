@@ -12,6 +12,7 @@ from app.domain.access import (
     MODULE_ADMIN_ROLES,
     administered_module_codes,
     effective_membership_dicts,
+    effective_module_roles,
     effective_module_codes,
     ensure_modules_seeded,
     is_platform_admin,
@@ -22,7 +23,16 @@ from app.domain.access import (
 )
 from app.domain.enums import AuditEntityType, ChangeSource, ModuleCode, ModuleRole, UserRole
 from app.models.user import User, UserModuleMembership, UserSession
-from app.schemas.users import UserCreate, UserModuleMembershipInput, UserRead, UserUpdate
+from app.models.user import CanSensitiveAccessSetting
+from app.schemas.users import (
+    CanSensitiveAccessSettingsRead,
+    CanSensitiveAccessSettingsUpdate,
+    CanSensitiveField,
+    UserCreate,
+    UserModuleMembershipInput,
+    UserRead,
+    UserUpdate,
+)
 from app.services.audit import record_create, record_delete, record_update
 
 router = APIRouter(tags=["users"])
@@ -34,6 +44,8 @@ require_rm_listing = require_module_roles(
     ModuleRole.CAN_MANAGEMENT,
 )
 USER_AUDIT_SENSITIVE_FIELDS = {"email", "password"}
+CAN_SENSITIVE_FIELDS: tuple[CanSensitiveField, ...] = ("pan", "mobile", "email", "bank_account_number")
+CAN_SENSITIVE_CONFIGURABLE_ROLES: tuple[ModuleRole, ...] = (ModuleRole.CAN_OPS, ModuleRole.CAN_RM)
 
 
 def require_user_admin(current_user: User = Depends(require_active_user)) -> User:
@@ -42,6 +54,16 @@ def require_user_admin(current_user: User = Depends(require_active_user)) -> Use
             status.HTTP_403_FORBIDDEN,
             "forbidden",
             "User role is not permitted for this action.",
+        )
+    return current_user
+
+
+def require_can_admin(current_user: User = Depends(require_active_user)) -> User:
+    if not user_has_module_role(current_user, ModuleCode.CAN_COMPLIANCE, ModuleRole.CAN_ADMIN):
+        raise_api_error(
+            status.HTTP_403_FORBIDDEN,
+            "forbidden",
+            "Only CAN admins can manage sensitive access settings.",
         )
     return current_user
 
@@ -59,7 +81,70 @@ def _user_audit_values(user: User) -> dict[str, object]:
     }
 
 
-def user_to_read(user: User) -> dict[str, object]:
+def _setting_key(role: ModuleRole | str, field_name: str) -> tuple[str, str]:
+    return (role.value if isinstance(role, ModuleRole) else str(role), field_name)
+
+
+def ensure_can_sensitive_access_seeded(db: Session) -> None:
+    existing = {
+        _setting_key(setting.role, setting.field_name)
+        for setting in db.scalars(
+            select(CanSensitiveAccessSetting).where(CanSensitiveAccessSetting.deleted_at.is_(None))
+        )
+    }
+    for role in CAN_SENSITIVE_CONFIGURABLE_ROLES:
+        for field_name in CAN_SENSITIVE_FIELDS:
+            if (role.value, field_name) in existing:
+                continue
+            db.add(
+                CanSensitiveAccessSetting(
+                    role=role,
+                    field_name=field_name,
+                    is_enabled=role == ModuleRole.CAN_OPS,
+                )
+            )
+    db.flush()
+
+
+def can_sensitive_access_settings_to_read(db: Session) -> dict[str, dict[str, bool]]:
+    result = {
+        role.value: {field_name: role == ModuleRole.CAN_OPS for field_name in CAN_SENSITIVE_FIELDS}
+        for role in CAN_SENSITIVE_CONFIGURABLE_ROLES
+    }
+    settings = db.scalars(
+        select(CanSensitiveAccessSetting).where(CanSensitiveAccessSetting.deleted_at.is_(None))
+    )
+    for setting in settings:
+        role = str(setting.role)
+        if role in result and setting.field_name in result[role]:
+            result[role][setting.field_name] = setting.is_enabled
+    return result
+
+
+def can_sensitive_access_for_user(user: User, db: Session | None = None) -> dict[str, bool]:
+    if user_has_module_role(user, ModuleCode.CAN_COMPLIANCE, ModuleRole.CAN_ADMIN):
+        return {field_name: True for field_name in CAN_SENSITIVE_FIELDS}
+    if user_has_module_role(user, ModuleCode.CAN_COMPLIANCE, ModuleRole.CAN_MANAGEMENT, platform_admin_bypass=False):
+        return {field_name: False for field_name in CAN_SENSITIVE_FIELDS}
+
+    roles = effective_module_roles(user, ModuleCode.CAN_COMPLIANCE)
+    configurable_roles = roles & set(CAN_SENSITIVE_CONFIGURABLE_ROLES)
+    if not configurable_roles:
+        return {field_name: False for field_name in CAN_SENSITIVE_FIELDS}
+    if db is None:
+        return {
+            field_name: any(role == ModuleRole.CAN_OPS for role in configurable_roles)
+            for field_name in CAN_SENSITIVE_FIELDS
+        }
+
+    settings = can_sensitive_access_settings_to_read(db)
+    return {
+        field_name: any(settings[role.value][field_name] for role in configurable_roles)
+        for field_name in CAN_SENSITIVE_FIELDS
+    }
+
+
+def user_to_read(user: User, db: Session | None = None) -> dict[str, object]:
     return {
         "id": user.id,
         "name": user.name,
@@ -67,12 +152,43 @@ def user_to_read(user: User) -> dict[str, object]:
         "role": user.role,
         "memberships": effective_membership_dicts(user),
         "module_codes": effective_module_codes(user),
+        "can_sensitive_access": can_sensitive_access_for_user(user, db),
         "is_platform_admin": is_platform_admin(user),
         "is_active": user.is_active,
         "last_login_at": user.last_login_at,
         "created_at": user.created_at,
         "updated_at": user.updated_at,
     }
+
+
+@router.get("/admin/can-sensitive-access", response_model=CanSensitiveAccessSettingsRead)
+def get_can_sensitive_access_settings(
+    _admin: User = Depends(require_can_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, dict[str, bool]]:
+    return can_sensitive_access_settings_to_read(db)
+
+
+@router.patch("/admin/can-sensitive-access", response_model=CanSensitiveAccessSettingsRead)
+def update_can_sensitive_access_settings(
+    payload: CanSensitiveAccessSettingsUpdate,
+    _request: Request,
+    _admin: User = Depends(require_can_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, dict[str, bool]]:
+    ensure_can_sensitive_access_seeded(db)
+    existing = {
+        _setting_key(setting.role, setting.field_name): setting
+        for setting in db.scalars(
+            select(CanSensitiveAccessSetting).where(CanSensitiveAccessSetting.deleted_at.is_(None))
+        )
+    }
+    for role in CAN_SENSITIVE_CONFIGURABLE_ROLES:
+        role_payload = getattr(payload, role.value)
+        for field_name in CAN_SENSITIVE_FIELDS:
+            existing[(role.value, field_name)].is_enabled = getattr(role_payload, field_name)
+    db.commit()
+    return can_sensitive_access_settings_to_read(db)
 
 
 def _get_user_or_404(user_id: UUID, db: Session) -> User:

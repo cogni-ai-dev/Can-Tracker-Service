@@ -1,10 +1,10 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { Pencil, Plus, RotateCcw, ShieldCheck, Trash2 } from 'lucide-react';
 
 import { Badge, Card, ConfirmActionDialog, EmptyState, PageHeader } from '../../components/ui';
 import { usersApi } from '../../lib/api';
 import { canAdministerUserModule, canManageUsers, canRoleToUserRole, effectiveMemberships } from '../../lib/access';
-import type { CurrentUser, ModuleCode, ModuleRole, UserMembership, UserPayload, UserRecord, UserRole } from '../../types';
+import type { CanSensitiveAccess, CanSensitiveAccessSettings, CurrentUser, ModuleCode, ModuleRole, UserMembership, UserPayload, UserRecord, UserRole } from '../../types';
 
 const userRoleLabels: Record<UserRole, string> = {
   admin: 'Platform Admin',
@@ -186,6 +186,7 @@ export function AdminModule({ user }: { user: CurrentUser }) {
         </div>
       </Card>
       <RoleAccessGuide />
+      {canAdministerUserModule(user, 'can_compliance') && <SensitiveAccessSettingsCard />}
       {loading && <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">Loading users...</div>}
       {error && <EmptyState title="Users unavailable" detail={error} />}
       {!loading && !error && (
@@ -442,6 +443,113 @@ function RoleAccessGuide() {
           </div>
         ))}
       </div>
+    </Card>
+  );
+}
+
+const sensitiveFieldLabels: Array<{ key: keyof CanSensitiveAccess; label: string }> = [
+  { key: 'pan', label: 'PAN' },
+  { key: 'mobile', label: 'Mobile' },
+  { key: 'email', label: 'Email' },
+  { key: 'bank_account_number', label: 'Bank Account' },
+];
+
+const sensitiveRoleLabels: Array<{ key: keyof CanSensitiveAccessSettings; label: string }> = [
+  { key: 'can_ops', label: 'CAN Ops' },
+  { key: 'can_rm', label: 'CAN RM' },
+];
+
+function SensitiveAccessSettingsCard() {
+  const [settings, setSettings] = useState<CanSensitiveAccessSettings | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    usersApi.sensitiveAccess()
+      .then((data) => {
+        if (!cancelled) setSettings(data);
+      })
+      .catch((error) => {
+        if (!cancelled) setMessage(friendlyError(error));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function update(role: keyof CanSensitiveAccessSettings, field: keyof CanSensitiveAccess, checked: boolean) {
+    setSettings((current) => current ? ({
+      ...current,
+      [role]: { ...current[role], [field]: checked },
+    }) : current);
+  }
+
+  async function save() {
+    if (!settings) return;
+    setSaving(true);
+    setMessage('');
+    try {
+      const saved = await usersApi.updateSensitiveAccess(settings);
+      setSettings(saved);
+      setMessage('Sensitive access settings saved.');
+    } catch (error) {
+      setMessage(friendlyError(error));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card className="mb-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900"><ShieldCheck size={16} /> Sensitive Member Detail Access</div>
+          <div className="mt-1 text-sm text-slate-500">Full values stay masked until users reveal them from member details.</div>
+        </div>
+        <button type="button" disabled={!settings || saving} onClick={save} className="rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
+          {saving ? 'Saving...' : 'Save Access'}
+        </button>
+      </div>
+      {message && <div className="mb-3 rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-700">{message}</div>}
+      {loading && <div className="text-sm text-slate-500">Loading sensitive access settings...</div>}
+      {settings && (
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+              <tr>
+                <th className="px-3 py-2">Role</th>
+                {sensitiveFieldLabels.map((field) => <th key={field.key} className="px-3 py-2">{field.label}</th>)}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {sensitiveRoleLabels.map((role) => (
+                <tr key={role.key}>
+                  <td className="px-3 py-3 font-semibold text-slate-900">{role.label}</td>
+                  {sensitiveFieldLabels.map((field) => (
+                    <td key={field.key} className="px-3 py-3">
+                      <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={settings[role.key][field.key]}
+                          onChange={(event) => update(role.key, field.key, event.target.checked)}
+                          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        Enabled
+                      </label>
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </Card>
   );
 }

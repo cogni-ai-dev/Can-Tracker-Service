@@ -16,7 +16,7 @@ from app.core.security import hash_password
 from app.domain.enums import AuditAction, ChangeSource, KycStatus, PayeezzStatus, UserRole, VerificationStatus
 from app.main import create_app
 from app.models.audit import AuditLog
-from app.models.family import Family, Member
+from app.models.family import Family, Member, MemberBankAccount
 from app.models.imports import ImportRow
 from app.models.user import User
 from app.services.mfu_gateway import TEMPLATE_COLUMNS
@@ -546,7 +546,9 @@ async def test_upload_defaults_blank_can_and_status_cells_to_pending_values(
     assert member.mobile_verification_status == VerificationStatus.PENDING_VERIFICATION
     assert member.email_verification_status == VerificationStatus.PENDING_VERIFICATION
     assert member.nominee_verification_status == VerificationStatus.PENDING_VERIFICATION
-    assert member.payeezz_mandate_status == PayeezzStatus.NOT_STARTED
+    assert len(member.bank_accounts) == 1
+    assert member.bank_accounts[0].is_primary is True
+    assert member.bank_accounts[0].payeezz_mandate_status == PayeezzStatus.NOT_STARTED
 
 
 @pytest.mark.asyncio
@@ -600,13 +602,12 @@ async def test_upload_marks_invalid_rows_and_duplicate_cans_as_errors(
 
     assert upload.status_code == 201
     assert batch["status"] == "validated"
-    assert batch["valid_row_count"] == 0
-    assert batch["error_row_count"] == 3
+    assert batch["valid_row_count"] == 2
+    assert batch["error_row_count"] == 1
     error_rows = row_response.json()["items"]
-    assert row_response.json()["total"] == 3
+    assert row_response.json()["total"] == 1
     assert any("KYCStatus" in " ".join(row["errors"]) for row in error_rows)
     assert any("PAN" in " ".join(row["errors"]) for row in error_rows)
-    assert sum("duplicate CAN" in " ".join(row["errors"]) for row in error_rows) == 2
 
 
 @pytest.mark.asyncio
@@ -641,7 +642,6 @@ async def test_commit_applies_valid_rows_preserves_local_remarks_leaves_conflict
         mobile_verification_status=VerificationStatus.PENDING_VERIFICATION,
         email_verification_status=VerificationStatus.PENDING_VERIFICATION,
         nominee_verification_status=VerificationStatus.PENDING_VERIFICATION,
-        payeezz_mandate_status=PayeezzStatus.NOT_STARTED,
         remarks="Local member remarks",
     )
     conflict_member = Member(
@@ -653,7 +653,6 @@ async def test_commit_applies_valid_rows_preserves_local_remarks_leaves_conflict
         mobile_verification_status=VerificationStatus.PENDING_VERIFICATION,
         email_verification_status=VerificationStatus.PENDING_VERIFICATION,
         nominee_verification_status=VerificationStatus.PENDING_VERIFICATION,
-        payeezz_mandate_status=PayeezzStatus.NOT_STARTED,
         remarks="Conflict remarks",
     )
     db_session.add_all([local_member, conflict_member])
@@ -790,7 +789,6 @@ async def test_commit_does_not_mark_batch_committed_when_recheck_conflicts_all_v
                 mobile_verification_status=VerificationStatus.PENDING_VERIFICATION,
                 email_verification_status=VerificationStatus.PENDING_VERIFICATION,
                 nominee_verification_status=VerificationStatus.PENDING_VERIFICATION,
-                payeezz_mandate_status=PayeezzStatus.NOT_STARTED,
             )
         )
         db_session.commit()

@@ -3,13 +3,13 @@ from __future__ import annotations
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.config import Settings
 from app.core.pii import email_search_hash, mobile_search_hash, pan_search_hash
 from app.domain.access import user_is_can_rm
 from app.domain.enums import CanStatus, KycStatus, PayeezzStatus, VerificationStatus
-from app.models.family import Family, Member
+from app.models.family import Family, Member, MemberBankAccount
 from app.models.user import User
 
 
@@ -62,7 +62,21 @@ def member_filter_conditions(
     if kyc_status is not None:
         filters.append(Member.kyc_status == _status_value(kyc_status))
     if payeezz_mandate_status is not None:
-        filters.append(Member.payeezz_mandate_status == _status_value(payeezz_mandate_status))
+        status = _status_value(payeezz_mandate_status)
+        primary_bank_status = (
+            select(MemberBankAccount.payeezz_mandate_status)
+            .where(
+                MemberBankAccount.member_id == Member.id,
+                MemberBankAccount.deleted_at.is_(None),
+                MemberBankAccount.is_primary.is_(True),
+            )
+            .limit(1)
+            .scalar_subquery()
+        )
+        if status == PayeezzStatus.NOT_STARTED.value:
+            filters.append((primary_bank_status == status) | primary_bank_status.is_(None))
+        else:
+            filters.append(primary_bank_status == status)
     if mobile_verification_status is not None:
         filters.append(Member.mobile_verification_status == _status_value(mobile_verification_status))
     if email_verification_status is not None:
@@ -107,7 +121,7 @@ def list_members(
         db.scalars(
             select(Member)
             .join(Member.family)
-            .options(joinedload(Member.family).joinedload(Family.primary_rm))
+            .options(joinedload(Member.family).joinedload(Family.primary_rm), selectinload(Member.bank_accounts))
             .where(*filters)
             .order_by(Family.family_code, Member.name, Member.id)
             .limit(limit)
@@ -121,7 +135,7 @@ def get_active_member(db: Session, member_id: UUID, user: User) -> Member | None
     return db.scalar(
         select(Member)
         .join(Member.family)
-        .options(joinedload(Member.family).joinedload(Family.primary_rm))
+        .options(joinedload(Member.family).joinedload(Family.primary_rm), selectinload(Member.bank_accounts))
         .where(
             Member.id == member_id,
             *member_visibility_filters(user),

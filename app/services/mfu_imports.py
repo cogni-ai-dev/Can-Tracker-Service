@@ -36,7 +36,7 @@ from app.domain.enums import (
     PayeezzStatus,
     VerificationStatus,
 )
-from app.models.family import Family, Member
+from app.models.family import Family, Member, MemberBankAccount
 from app.models.imports import ImportBatch, ImportRow
 from app.models.user import User
 from app.repositories import families as family_repo
@@ -384,6 +384,26 @@ def _validate_record(db: Session, record: MfuMemberRecord) -> VerifiedTemplateRo
     primary_rm_name = _optional_text(record, "PrimaryRMName")
     rm = _find_active_rm(db, email=primary_rm_email, name=primary_rm_name, errors=errors)
 
+    bank_name = _optional_text(record, "BankName")
+    bank_account_number = _normalize_optional(record, "AccountNumber", normalize_bank_account_number, errors)
+    ifsc_code = _normalize_optional(record, "IFSC", normalize_ifsc, errors)
+    has_bank_data = any(
+        value is not None
+        for value in (
+            bank_name,
+            bank_account_number,
+            ifsc_code,
+            _optional_text(record, "PayEezzAmount"),
+            _optional_text(record, "PayEezzStartDate"),
+        )
+    )
+    if not has_bank_data:
+        payeezz_mandate_status = PayeezzStatus.NOT_STARTED.value
+    if has_bank_data and not bank_name:
+        errors.append("BankName: value is required when bank account data is present.")
+    if has_bank_data and not bank_account_number:
+        errors.append("AccountNumber: value is required when bank account data is present.")
+
     normalized_data = {
         "family_code": family_code,
         "family_head_name": family_head_name,
@@ -402,9 +422,9 @@ def _validate_record(db: Session, record: MfuMemberRecord) -> VerifiedTemplateRo
         "email": _normalize_optional(record, "Email", normalize_email, errors),
         "email_verification_status": email_verification_status,
         "nominee_verification_status": nominee_verification_status,
-        "bank_name": _optional_text(record, "BankName"),
-        "bank_account_number": _normalize_optional(record, "AccountNumber", normalize_bank_account_number, errors),
-        "ifsc_code": _normalize_optional(record, "IFSC", normalize_ifsc, errors),
+        "bank_name": bank_name,
+        "bank_account_number": bank_account_number,
+        "ifsc_code": ifsc_code,
         "payeezz_mandate_status": payeezz_mandate_status,
         "payeezz_amount": _parse_amount(_optional_text(record, "PayEezzAmount"), errors),
         "payeezz_start_date": _parse_iso_date(_optional_text(record, "PayEezzStartDate"), "PayEezzStartDate", errors),
@@ -420,16 +440,7 @@ def _validate_record(db: Session, record: MfuMemberRecord) -> VerifiedTemplateRo
 
 
 def _apply_duplicate_can_errors(rows: list[VerifiedTemplateRow]) -> None:
-    can_counts: dict[str, int] = {}
-    for row in rows:
-        can_number = row.normalized_data.get("can_number")
-        if isinstance(can_number, str):
-            can_counts[can_number] = can_counts.get(can_number, 0) + 1
-    duplicates = {can for can, count in can_counts.items() if count > 1}
-    for row in rows:
-        if row.normalized_data.get("can_number") in duplicates:
-            row.errors.append("CANNumber: duplicate CAN number in import file.")
-            row.status = ImportRowStatus.ERROR
+    return
 
 
 def _apply_existing_record_status(db: Session, rows: list[VerifiedTemplateRow]) -> None:
@@ -716,10 +727,6 @@ def _set_member_protected_field_from_stored(member: Member, field_name: str, sto
     encrypted_attr = f"{field_name}_encrypted"
     masked_attr = f"{field_name}_masked"
     search_hash_attr = f"{field_name}_search_hash"
-    if field_name == "bank_account_number":
-        encrypted_attr = "bank_account_number_encrypted"
-        masked_attr = "bank_account_number_masked"
-        search_hash_attr = "bank_account_number_search_hash"
     if not isinstance(value, dict):
         setattr(member, encrypted_attr, None)
         setattr(member, masked_attr, None)
@@ -728,6 +735,19 @@ def _set_member_protected_field_from_stored(member: Member, field_name: str, sto
     setattr(member, encrypted_attr, value.get("ciphertext"))
     setattr(member, masked_attr, value.get("masked"))
     setattr(member, search_hash_attr, value.get("search_hash"))
+
+
+def _set_bank_account_protected_field_from_stored(
+    bank_account: MemberBankAccount,
+    field_name: str,
+    stored_data: dict[str, Any],
+) -> None:
+    value = stored_data.get(field_name)
+    if not isinstance(value, dict):
+        return
+    bank_account.account_number_encrypted = value.get("ciphertext")
+    bank_account.account_number_masked = value.get("masked")
+    bank_account.account_number_search_hash = value.get("search_hash")
 
 
 def _apply_import_member_data(
@@ -749,14 +769,84 @@ def _apply_import_member_data(
     _set_member_protected_field_from_stored(member, "email", stored_data)
     member.email_verification_status = data["email_verification_status"]
     member.nominee_verification_status = data["nominee_verification_status"]
-    member.bank_name = data["bank_name"]
-    _set_member_protected_field_from_stored(member, "bank_account_number", stored_data)
-    member.ifsc_code = data["ifsc_code"]
-    member.payeezz_mandate_status = data["payeezz_mandate_status"]
-    member.payeezz_amount = _decimal_value(data["payeezz_amount"])
-    member.payeezz_start_date = _date_value(data["payeezz_start_date"])
     if is_new or data.get("remarks"):
         member.remarks = data.get("remarks")
+
+
+def _bank_account_audit_values(bank_account: MemberBankAccount, data: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "bank_name": bank_account.bank_name,
+        "bank_account_number": data.get("bank_account_number"),
+        "ifsc_code": bank_account.ifsc_code,
+        "is_primary": bank_account.is_primary,
+        "payeezz_mandate_status": bank_account.payeezz_mandate_status,
+        "payeezz_amount": bank_account.payeezz_amount,
+        "payeezz_start_date": bank_account.payeezz_start_date,
+    }
+
+
+def _active_bank_accounts(db: Session, member_id: UUID) -> list[MemberBankAccount]:
+    return list(
+        db.scalars(
+            select(MemberBankAccount).where(
+                MemberBankAccount.member_id == member_id,
+                MemberBankAccount.deleted_at.is_(None),
+            )
+        ).all()
+    )
+
+
+def _upsert_import_bank_account(
+    db: Session,
+    *,
+    member: Member,
+    data: dict[str, Any],
+    stored_data: dict[str, Any],
+    actor: User,
+    batch: ImportBatch,
+    request_id: str | None,
+) -> None:
+    bank_name = data.get("bank_name")
+    stored_account = stored_data.get("bank_account_number")
+    account_hash = stored_account.get("search_hash") if isinstance(stored_account, dict) else None
+    if bank_name is None and account_hash is None:
+        return
+    if bank_name is None or account_hash is None:
+        return
+    bank_account = db.scalar(
+        select(MemberBankAccount).where(
+            MemberBankAccount.member_id == member.id,
+            MemberBankAccount.bank_name == bank_name,
+            MemberBankAccount.account_number_search_hash == account_hash,
+            MemberBankAccount.deleted_at.is_(None),
+        )
+    )
+    active_accounts = _active_bank_accounts(db, member.id)
+    is_new = bank_account is None
+    if bank_account is None:
+        bank_account = MemberBankAccount(member_id=member.id, is_primary=not active_accounts)
+        db.add(bank_account)
+    old_values = {} if is_new else _bank_account_audit_values(bank_account, data)
+    bank_account.bank_name = bank_name
+    _set_bank_account_protected_field_from_stored(bank_account, "bank_account_number", stored_data)
+    bank_account.ifsc_code = data.get("ifsc_code")
+    bank_account.payeezz_mandate_status = data["payeezz_mandate_status"]
+    bank_account.payeezz_amount = _decimal_value(data["payeezz_amount"])
+    bank_account.payeezz_start_date = _date_value(data["payeezz_start_date"])
+    if is_new and not active_accounts:
+        bank_account.is_primary = True
+    db.flush()
+    record_update(
+        db,
+        entity_type=AuditEntityType.MEMBER,
+        entity_id=member.id,
+        old_values=old_values,
+        new_values=_bank_account_audit_values(bank_account, data),
+        actor_user_id=actor.id,
+        source=ChangeSource.IMPORT,
+        import_batch_id=batch.id,
+        request_id=request_id,
+    )
 
 
 def _active_rm_by_id(db: Session, rm_id: str | UUID | None) -> User | None:
@@ -806,6 +896,26 @@ def _family_for_import_row(db: Session, row: ImportRow, data: dict[str, Any], rm
     return None
 
 
+def _member_for_import_row(db: Session, *, row: ImportRow, data: dict[str, Any], family: Family | None) -> Member | None:
+    can_number = data.get("can_number")
+    member = member_repo.find_active_member_by_can(db, can_number)
+    if member is not None:
+        return member
+    if row.member_id is not None:
+        stored_member = db.get(Member, row.member_id)
+        if stored_member is not None and stored_member.deleted_at is None:
+            return stored_member
+    if family is None:
+        return None
+    return db.scalar(
+        select(Member).where(
+            Member.family_id == family.id,
+            Member.name == data["member_name"],
+            Member.deleted_at.is_(None),
+        )
+    )
+
+
 def commit_import_batch(
     db: Session,
     *,
@@ -837,9 +947,8 @@ def commit_import_batch(
             row.errors = [*row.errors, "PrimaryRM: active RM user no longer exists."]
             continue
 
-        can_number = data["can_number"]
-        existing_member = member_repo.find_active_member_by_can(db, can_number)
         family = _family_for_import_row(db, row, data, rm)
+        existing_member = _member_for_import_row(db, row=row, data=data, family=family)
         if row.status == ImportRowStatus.CONFLICT:
             continue
         if existing_member is not None and family is not None and existing_member.family_id != family.id:
@@ -944,6 +1053,16 @@ def commit_import_batch(
                 import_batch_id=batch.id,
                 request_id=request_id,
             )
+
+        _upsert_import_bank_account(
+            db,
+            member=member,
+            data=data,
+            stored_data=stored_data,
+            actor=actor,
+            batch=batch,
+            request_id=request_id,
+        )
 
         row.status = ImportRowStatus.COMMITTED
         row.family_id = family.id

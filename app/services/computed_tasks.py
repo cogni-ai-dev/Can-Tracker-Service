@@ -11,9 +11,9 @@ from app.api.errors import raise_api_error
 from app.core.config import Settings
 from app.core.pii import email_search_hash, mobile_search_hash, pan_search_hash
 from app.domain.access import user_is_can_rm
-from app.domain.enums import TaskType
+from app.domain.enums import PayeezzStatus, TaskType
 from app.domain.tasks import TASK_RULES, mask_can_number
-from app.models.family import Family, Member
+from app.models.family import Family, Member, MemberBankAccount
 from app.models.user import User
 from app.schemas.tasks import TaskListFilters
 
@@ -83,8 +83,7 @@ def _task_rows_subquery(
             continue
         if filters.priority is not None and filters.priority != rule.priority:
             continue
-        status_column = getattr(Member, rule.status_field)
-        selects.append(
+        statement = (
             select(
                 literal(rule.type.value).label("type"),
                 literal(rule.priority.value).label("priority"),
@@ -103,8 +102,25 @@ def _task_rows_subquery(
             .select_from(Member)
             .join(Member.family)
             .outerjoin(User, Family.primary_rm_id == User.id)
-            .where(*base_filters, status_column == rule.status_value)
         )
+        if rule.type == TaskType.PAYEEZZ:
+            statement = statement.outerjoin(
+                MemberBankAccount,
+                (MemberBankAccount.member_id == Member.id)
+                & MemberBankAccount.deleted_at.is_(None)
+                & MemberBankAccount.is_primary.is_(True),
+            )
+            if rule.status_value == PayeezzStatus.NOT_STARTED.value:
+                statement = statement.where(
+                    *base_filters,
+                    (MemberBankAccount.payeezz_mandate_status == rule.status_value) | MemberBankAccount.id.is_(None),
+                )
+            else:
+                statement = statement.where(*base_filters, MemberBankAccount.payeezz_mandate_status == rule.status_value)
+        else:
+            status_column = getattr(Member, rule.status_field)
+            statement = statement.where(*base_filters, status_column == rule.status_value)
+        selects.append(statement)
 
     if not selects:
         return None

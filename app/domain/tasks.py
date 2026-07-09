@@ -4,6 +4,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from app.domain.compliance import payeezz_status
 from app.domain.enums import KycStatus, PayeezzStatus, TaskPriority, TaskType, VerificationStatus
 from app.domain.records import active, family_lookup, value
 
@@ -188,7 +189,8 @@ def generate_member_tasks(member: Any, family: Any | None = None) -> tuple[Compu
 
     tasks: list[ComputedTask] = []
     for rule in TASK_RULES:
-        if value(member, rule.status_field, rule.frontend_field, default=None) == rule.status_value:
+        status_value = payeezz_status(member) if rule.type == TaskType.PAYEEZZ else value(member, rule.status_field, rule.frontend_field, default=None)
+        if status_value == rule.status_value:
             tasks.append(
                 _make_task(
                     rule.type,

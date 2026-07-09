@@ -6,14 +6,14 @@ from uuid import UUID
 
 from fastapi import status
 from sqlalchemy import case, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.api.errors import raise_api_error
 from app.core.config import Settings
 from app.domain.access import user_is_can_rm
 from app.domain.compliance import family_completion, percentage
 from app.domain.enums import KycStatus, PayeezzStatus, VerificationStatus
-from app.models.family import Family, Member
+from app.models.family import Family, Member, MemberBankAccount
 from app.models.user import User
 from app.repositories import families as family_repo
 from app.services.family_members import member_to_response
@@ -92,11 +92,11 @@ def get_dashboard_summary(
             _count_when(Member.kyc_status == KycStatus.VERIFIED.value).label("kyc_verified"),
             _count_when(Member.kyc_status == KycStatus.PENDING_REKYC.value).label("kyc_pending_rekyc"),
             _count_when(Member.kyc_status == KycStatus.NOT_STARTED.value).label("kyc_not_started"),
-            _count_when(Member.payeezz_mandate_status == PayeezzStatus.APPROVED.value).label("payeezz_approved"),
-            _count_when(Member.payeezz_mandate_status == PayeezzStatus.PENDING_APPROVAL.value).label(
+            _count_when(MemberBankAccount.payeezz_mandate_status == PayeezzStatus.APPROVED.value).label("payeezz_approved"),
+            _count_when(MemberBankAccount.payeezz_mandate_status == PayeezzStatus.PENDING_APPROVAL.value).label(
                 "payeezz_pending_approval"
             ),
-            _count_when(Member.payeezz_mandate_status == PayeezzStatus.NOT_STARTED.value).label("payeezz_not_started"),
+            _count_when((MemberBankAccount.payeezz_mandate_status == PayeezzStatus.NOT_STARTED.value) | MemberBankAccount.id.is_(None)).label("payeezz_not_started"),
             _count_when(Member.mobile_verification_status == VerificationStatus.VERIFIED.value).label("mobile_verified"),
             _count_when(Member.mobile_verification_status == VerificationStatus.PENDING_VERIFICATION.value).label("mobile_pending_verification"),
             _count_when(Member.email_verification_status == VerificationStatus.VERIFIED.value).label("email_verified"),
@@ -106,6 +106,12 @@ def get_dashboard_summary(
         )
         .select_from(Member)
         .join(Member.family)
+        .outerjoin(
+            MemberBankAccount,
+            (MemberBankAccount.member_id == Member.id)
+            & MemberBankAccount.deleted_at.is_(None)
+            & MemberBankAccount.is_primary.is_(True),
+        )
         .where(*member_filters)
     ).one()
     counts = row._mapping

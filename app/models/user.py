@@ -108,3 +108,23 @@ class UserSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     user: Mapped[User] = relationship(back_populates="sessions")
+
+
+class CanSensitiveAccessSetting(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "can_sensitive_access_settings"
+    __table_args__ = (
+        CheckConstraint(
+            "role in ('can_ops', 'can_rm')",
+            name="can_sensitive_access_settings_role_valid",
+        ),
+        CheckConstraint(
+            "field_name in ('pan', 'mobile', 'email', 'bank_account_number')",
+            name="can_sensitive_access_settings_field_name_valid",
+        ),
+        UniqueConstraint("role", "field_name", name="uq_can_sensitive_access_settings_role_field"),
+        Index("ix_can_sensitive_access_settings_role", "role"),
+    )
+
+    role: Mapped[ModuleRole] = mapped_column(String(64), nullable=False)
+    field_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")

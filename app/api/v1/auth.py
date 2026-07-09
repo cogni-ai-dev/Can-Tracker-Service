@@ -64,7 +64,7 @@ def login(
         samesite="lax",
         path="/",
     )
-    return {"user": user_to_read(user)}
+    return {"user": user_to_read(user, db)}
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -127,5 +127,5 @@ def change_password(
 
 
 @router.get("/me", response_model=UserRead)
-def me(current_user: User = Depends(require_active_user)) -> dict[str, object]:
-    return user_to_read(current_user)
+def me(current_user: User = Depends(require_active_user), db: Session = Depends(get_db)) -> dict[str, object]:
+    return user_to_read(current_user, db)

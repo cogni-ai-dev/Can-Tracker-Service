@@ -1,6 +1,6 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { Download, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { Download, Eye, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
 import {
   Bar,
   BarChart,
@@ -31,6 +31,8 @@ import type {
   FamilyPayload,
   KycStatus,
   Member,
+  MemberBankAccount,
+  MemberBankAccountPayload,
   MemberPayload,
   PayeezzStatus,
   ReportExportFormat,
@@ -93,6 +95,8 @@ type ModalState =
   | { type: 'family'; mode: 'edit'; family: Family | FamilyDashboard }
   | { type: 'member'; mode: 'create'; familyId: string; member?: undefined }
   | { type: 'member'; mode: 'edit'; familyId: string; member: Member }
+  | { type: 'bank'; mode: 'create'; member: Member; bankAccount?: undefined }
+  | { type: 'bank'; mode: 'edit'; member: Member; bankAccount: MemberBankAccount }
   | null;
 
 type LoadState<T> = {
@@ -211,6 +215,8 @@ export function ComplianceModule({ user }: { user: CurrentUser }) {
           onEditFamily={(family) => setModal({ type: 'family', mode: 'edit', family })}
           onAddMember={(id) => setModal({ type: 'member', mode: 'create', familyId: id })}
           onEditMember={(id, member) => setModal({ type: 'member', mode: 'edit', familyId: id, member })}
+          onAddBankAccount={(member) => setModal({ type: 'bank', mode: 'create', member })}
+          onEditBankAccount={(member, bankAccount) => setModal({ type: 'bank', mode: 'edit', member, bankAccount })}
           onDeleted={() => {
             refresh();
             navigate('/compliance/families');
@@ -269,6 +275,13 @@ export function ComplianceModule({ user }: { user: CurrentUser }) {
       {modal?.type === 'member' && (
         <MemberModal
           user={user}
+          modal={modal}
+          onClose={() => closeModal()}
+          onSaved={() => closeModal(true)}
+        />
+      )}
+      {modal?.type === 'bank' && (
+        <BankAccountModal
           modal={modal}
           onClose={() => closeModal()}
           onSaved={() => closeModal(true)}
@@ -514,6 +527,8 @@ function FamilyDetailPage({
   onEditFamily,
   onAddMember,
   onEditMember,
+  onAddBankAccount,
+  onEditBankAccount,
   onDeleted,
   onChanged,
 }: {
@@ -524,12 +539,19 @@ function FamilyDetailPage({
   onEditFamily: (family: FamilyDashboard) => void;
   onAddMember: (familyId: string) => void;
   onEditMember: (familyId: string, member: Member) => void;
+  onAddBankAccount: (member: Member) => void;
+  onEditBankAccount: (member: Member, bankAccount: MemberBankAccount) => void;
   onDeleted: () => void;
   onChanged: () => void;
 }) {
   const [state, setState] = useState<LoadState<FamilyDashboard>>({ loading: true, error: '', data: null });
   const [message, setMessage] = useState('');
-  const [confirmAction, setConfirmAction] = useState<{ type: 'family' } | { type: 'member'; member: Member } | null>(null);
+  const [confirmAction, setConfirmAction] = useState<
+    { type: 'family' } | { type: 'member'; member: Member } | { type: 'bank'; member: Member; bankAccount: MemberBankAccount } | null
+  >(null);
+  const [detailMember, setDetailMember] = useState<Member | null>(null);
+  const [detailError, setDetailError] = useState('');
+  const [revealBusy, setRevealBusy] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
 
   useEffect(() => {
@@ -558,6 +580,21 @@ function FamilyDetailPage({
 
   async function confirmDelete() {
     if (!confirmAction) return;
+    if (confirmAction.type === 'bank') {
+      if (!canCreateMember(user)) return;
+      setDeleteBusy(true);
+      try {
+        await complianceApi.deleteBankAccount(confirmAction.member.id, confirmAction.bankAccount.id);
+        setMessage('Bank account deleted.');
+        setConfirmAction(null);
+        onChanged();
+      } catch (error) {
+        setMessage(friendlyError(error));
+      } finally {
+        setDeleteBusy(false);
+      }
+      return;
+    }
     if (confirmAction.type === 'member') {
       if (!canDeleteMember(user)) return;
       setDeleteBusy(true);
@@ -587,16 +624,32 @@ function FamilyDetailPage({
     }
   }
 
+  async function revealSensitiveMemberData() {
+    if (!detailMember || !canRevealSensitiveData(user)) return;
+    setRevealBusy(true);
+    setDetailError('');
+    try {
+      const revealed = await complianceApi.memberSensitive(detailMember.id);
+      setDetailMember(revealed);
+    } catch (error) {
+      setDetailError(friendlyError(error));
+    } finally {
+      setRevealBusy(false);
+    }
+  }
+
   if (state.loading) return <LoadingBlock label="Loading family details..." />;
   if (state.error || !state.data) return <EmptyState title="Family unavailable" detail={state.error || 'Family was not found.'} />;
 
   const family = state.data;
   const memberCount = family.number_of_members || family.members.length;
-  const confirmTitle = confirmAction?.type === 'member' ? 'Delete Member' : 'Delete Family';
+  const confirmTitle = confirmAction?.type === 'member' ? 'Delete Member' : confirmAction?.type === 'bank' ? 'Delete Bank Account' : 'Delete Family';
   const confirmMessage = confirmAction?.type === 'member'
     ? `Delete member ${confirmAction.member.name}? This action cannot be undone.`
-    : `Delete family ${family.family_head_name}? This will also delete its members. This action cannot be undone.`;
-  const confirmLabel = confirmAction?.type === 'member' ? 'Delete Member' : 'Delete Family';
+    : confirmAction?.type === 'bank'
+      ? `Delete ${confirmAction.bankAccount.bank_name} ${confirmAction.bankAccount.account_number_masked}? This action cannot be undone.`
+      : `Delete family ${family.family_head_name}? This will also delete its members. This action cannot be undone.`;
+  const confirmLabel = confirmAction?.type === 'member' ? 'Delete Member' : confirmAction?.type === 'bank' ? 'Delete Bank Account' : 'Delete Family';
 
   return (
     <div className="space-y-4">
@@ -677,14 +730,30 @@ function FamilyDetailPage({
                   <td className="px-3 py-3"><StatusBadge value={member.mobile_verification_status} /></td>
                   <td className="px-3 py-3"><StatusBadge value={member.email_verification_status} /></td>
                   <td className="px-3 py-3"><StatusBadge value={member.nominee_verification_status} /></td>
-                  <td className="px-3 py-3"><StatusBadge value={member.payeezz_mandate_status} /></td>
-                  <td className="px-3 py-3">{member.bank_name || '-'}</td>
+                  <td className="px-3 py-3"><StatusBadge value={member.effective_payeezz_mandate_status} /></td>
+                  <td className="px-3 py-3">
+                    <BankAccountList
+                      member={member}
+                      canManage={canCreateMember(user)}
+                      onAdd={() => onAddBankAccount(member)}
+                      onEdit={(bankAccount) => onEditBankAccount(member, bankAccount)}
+                      onDelete={(bankAccount) => setConfirmAction({ type: 'bank', member, bankAccount })}
+                    />
+                  </td>
                   <td className="px-3 py-3">{formatDate(member.updated_at)}</td>
                   <td className="px-3 py-3">
                     <div className="flex gap-2">
                       {canEditMember(user) && (
                         <button type="button" onClick={() => onEditMember(family.id, member)} className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">
                           Edit
+                        </button>
+                      )}
+                      <button type="button" onClick={() => { setDetailMember(member); setDetailError(''); }} className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                        <Eye size={13} /> View Details
+                      </button>
+                      {canCreateMember(user) && (
+                        <button type="button" onClick={() => onAddBankAccount(member)} className="rounded-md border border-blue-200 px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50">
+                          Add Bank
                         </button>
                       )}
                       {canDeleteMember(user) && (
@@ -713,6 +782,194 @@ function FamilyDetailPage({
           onConfirm={confirmDelete}
         />
       )}
+      {detailMember && (
+        <MemberDetailDialog
+          member={detailMember}
+          canReveal={canRevealSensitiveData(user)}
+          revealBusy={revealBusy}
+          error={detailError}
+          onReveal={revealSensitiveMemberData}
+          onClose={() => setDetailMember(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function canRevealSensitiveData(user: CurrentUser) {
+  if (canDeleteFamily(user)) return true;
+  if (user.can_sensitive_access) return Object.values(user.can_sensitive_access).some(Boolean);
+  return canCreateMember(user);
+}
+
+function displaySensitive(masked: string | null | undefined, revealed: string | null | undefined) {
+  return revealed || masked || '-';
+}
+
+function MemberDetailDialog({
+  member,
+  canReveal,
+  revealBusy,
+  error,
+  onReveal,
+  onClose,
+}: {
+  member: Member;
+  canReveal: boolean;
+  revealBusy: boolean;
+  error: string;
+  onReveal: () => void;
+  onClose: () => void;
+}) {
+  const hasRevealed = Boolean(member.pan || member.mobile || member.email || member.bank_accounts.some((account) => account.account_number));
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6">
+      <div role="dialog" aria-modal="true" aria-label="Member Details" className="max-h-full w-full max-w-4xl overflow-hidden rounded-lg bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-950 px-5 py-4 text-white">
+          <div>
+            <div className="font-semibold">Member Details</div>
+            <div className="text-sm text-slate-300">{member.name} | {member.family_head_name}</div>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-md px-2 py-1 text-sm text-slate-300 hover:bg-white/10 hover:text-white">Close</button>
+        </div>
+        <div className="max-h-[78vh] space-y-4 overflow-y-auto p-5">
+          {error && <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="text-sm text-slate-500">Sensitive values are masked until revealed.</div>
+            {canReveal && (
+              <button type="button" disabled={revealBusy || hasRevealed} onClick={onReveal} className="inline-flex items-center gap-2 rounded-md bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50">
+                <Eye size={16} /> {hasRevealed ? 'Sensitive Data Revealed' : revealBusy ? 'Revealing...' : 'Reveal Sensitive Data'}
+              </button>
+            )}
+          </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            <DetailItem label="CAN" value={displayCan(member)} />
+            <DetailItem label="PAN" value={displaySensitive(member.pan_masked, member.pan)} />
+            <DetailItem label="Date of Birth" value={formatDate(member.date_of_birth)} />
+            <DetailItem label="Mobile" value={displaySensitive(member.mobile_masked, member.mobile)} />
+            <DetailItem label="Email" value={displaySensitive(member.email_masked, member.email)} />
+            <DetailItem label="RM" value={displayRm(member.primary_rm)} />
+          </div>
+          <div className="grid gap-3 md:grid-cols-4">
+            <StatusItem label="KYC" value={member.kyc_status} />
+            <StatusItem label="Mobile" value={member.mobile_verification_status} />
+            <StatusItem label="Email" value={member.email_verification_status} />
+            <StatusItem label="Nominee" value={member.nominee_verification_status} />
+          </div>
+          {member.remarks && <div className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600">{member.remarks}</div>}
+          <div>
+            <div className="mb-2 text-sm font-semibold text-slate-900">Bank Accounts</div>
+            <div className="overflow-x-auto rounded-md border border-slate-200">
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2">Bank</th>
+                    <th className="px-3 py-2">Account</th>
+                    <th className="px-3 py-2">IFSC</th>
+                    <th className="px-3 py-2">PayEezz</th>
+                    <th className="px-3 py-2">Amount</th>
+                    <th className="px-3 py-2">Start</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {member.bank_accounts.map((account) => (
+                    <tr key={account.id}>
+                      <td className="px-3 py-3 font-semibold text-slate-900">{account.bank_name}{account.is_primary && <span className="ml-2 rounded bg-blue-50 px-2 py-0.5 text-xs text-blue-700">Primary</span>}</td>
+                      <td className="px-3 py-3">{account.account_number || account.account_number_masked}</td>
+                      <td className="px-3 py-3">{account.ifsc_code || '-'}</td>
+                      <td className="px-3 py-3"><StatusBadge value={account.payeezz_mandate_status} /></td>
+                      <td className="px-3 py-3">{account.payeezz_amount ? formatINR(Number(account.payeezz_amount)) : '-'}</td>
+                      <td className="px-3 py-3">{formatDate(account.payeezz_start_date)}</td>
+                    </tr>
+                  ))}
+                  {!member.bank_accounts.length && <tr><td className="px-3 py-8 text-center text-slate-500" colSpan={6}>No bank accounts.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DetailItem({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="rounded-md border border-slate-200 bg-white p-3">
+      <div className="text-xs font-semibold uppercase text-slate-500">{label}</div>
+      <div className="mt-1 break-words text-sm font-semibold text-slate-900">{value}</div>
+    </div>
+  );
+}
+
+function StatusItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-slate-200 bg-white p-3">
+      <div className="mb-1 text-xs font-semibold uppercase text-slate-500">{label}</div>
+      <StatusBadge value={value} />
+    </div>
+  );
+}
+
+function BankAccountList({
+  member,
+  canManage,
+  onAdd,
+  onEdit,
+  onDelete,
+}: {
+  member: Member;
+  canManage: boolean;
+  onAdd: () => void;
+  onEdit: (bankAccount: MemberBankAccount) => void;
+  onDelete: (bankAccount: MemberBankAccount) => void;
+}) {
+  if (!member.bank_accounts.length) {
+    return (
+      <div className="space-y-2">
+        <span className="text-slate-500">No bank accounts</span>
+        {canManage && (
+          <button type="button" onClick={onAdd} className="block rounded-md border border-blue-200 px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50">
+            Add Bank
+          </button>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="min-w-72 space-y-2">
+      {member.bank_accounts.map((bankAccount) => (
+        <div key={bankAccount.id} className="rounded-md border border-slate-200 p-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-semibold text-slate-900">{bankAccount.bank_name}</span>
+            {bankAccount.is_primary && <Badge tone="blue">Primary</Badge>}
+            <StatusBadge value={bankAccount.payeezz_mandate_status} />
+          </div>
+          <div className="mt-1 text-xs text-slate-500">
+            {bankAccount.account_number_masked}
+            {bankAccount.ifsc_code ? ` | ${bankAccount.ifsc_code}` : ''}
+          </div>
+          <div className="mt-1 text-xs text-slate-500">
+            {bankAccount.payeezz_amount ? formatINR(Number(bankAccount.payeezz_amount)) : '-'} | {formatDate(bankAccount.payeezz_start_date)}
+          </div>
+          {canManage && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button type="button" onClick={() => onEdit(bankAccount)} className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                Edit Bank
+              </button>
+              {!bankAccount.is_primary && (
+                <button type="button" onClick={() => onEdit({ ...bankAccount, is_primary: true })} className="rounded-md border border-blue-200 px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50">
+                  Set Primary
+                </button>
+              )}
+              <button type="button" onClick={() => onDelete(bankAccount)} className="rounded-md border border-rose-200 px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50">
+                Delete Bank
+              </button>
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -1075,7 +1332,6 @@ function MemberModal({
   const member = modal.mode === 'edit' ? modal.member : null;
   const remarksOnly = modal.mode === 'edit' && isCanRM(user) && !canCreateMember(user);
   const [clearPan, setClearPan] = useState(false);
-  const [clearAccount, setClearAccount] = useState(false);
   const [form, setForm] = useState<MemberPayload>({
     name: member?.name || '',
     can_number: member?.can_number || '',
@@ -1088,12 +1344,6 @@ function MemberModal({
     email: '',
     email_verification_status: member?.email_verification_status || 'Pending Verification',
     nominee_verification_status: member?.nominee_verification_status || 'Pending Verification',
-    bank_name: member?.bank_name || '',
-    bank_account_number: '',
-    ifsc_code: member?.ifsc_code || '',
-    payeezz_mandate_status: member?.payeezz_mandate_status || 'Not Started',
-    payeezz_amount: member?.payeezz_amount === null || member?.payeezz_amount === undefined ? null : Number(member.payeezz_amount),
-    payeezz_start_date: member?.payeezz_start_date || null,
     remarks: member?.remarks || '',
   });
   const [error, setError] = useState('');
@@ -1115,19 +1365,11 @@ function MemberModal({
       mobile_verification_status: form.mobile_verification_status,
       email_verification_status: form.email_verification_status,
       nominee_verification_status: form.nominee_verification_status,
-      bank_name: form.bank_name?.trim() || null,
-      ifsc_code: form.ifsc_code?.trim() || null,
-      payeezz_mandate_status: form.payeezz_mandate_status,
-      payeezz_amount: form.payeezz_amount === undefined ? null : form.payeezz_amount,
-      payeezz_start_date: form.payeezz_start_date || null,
       remarks: form.remarks?.trim() || null,
     };
     if (modal.mode === 'create' || form.pan || clearPan) payload.pan = clearPan ? null : form.pan?.trim() || null;
     if (modal.mode === 'create' || form.mobile) payload.mobile = form.mobile?.trim() || null;
     if (modal.mode === 'create' || form.email) payload.email = form.email?.trim() || null;
-    if (modal.mode === 'create' || form.bank_account_number || clearAccount) {
-      payload.bank_account_number = clearAccount ? null : form.bank_account_number?.trim() || null;
-    }
     return payload;
   }
 
@@ -1198,27 +1440,6 @@ function MemberModal({
               {verificationStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
             </select>
           </Field>
-          <Field label="Bank Name">
-            <input value={form.bank_name || ''} disabled={remarksOnly} onChange={(event) => update('bank_name', event.target.value)} className={inputClass} />
-          </Field>
-          <Field label="Bank Account">
-            <input value={form.bank_account_number || ''} disabled={remarksOnly || clearAccount} onChange={(event) => update('bank_account_number', event.target.value)} placeholder={member?.bank_account_number_masked ? `Stored: ${member.bank_account_number_masked}` : 'Bank account number'} className={inputClass} />
-            {modal.mode === 'edit' && member?.bank_account_number_masked && !remarksOnly && <Checkbox label="Clear stored account" checked={clearAccount} onChange={setClearAccount} />}
-          </Field>
-          <Field label="IFSC">
-            <input value={form.ifsc_code || ''} disabled={remarksOnly} onChange={(event) => update('ifsc_code', event.target.value)} className={inputClass} />
-          </Field>
-          <Field label="PayEezz Status">
-            <select value={form.payeezz_mandate_status} disabled={remarksOnly} onChange={(event) => update('payeezz_mandate_status', event.target.value as PayeezzStatus)} className={inputClass}>
-              {payeezzStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
-            </select>
-          </Field>
-          <Field label="PayEezz Amount">
-            <input type="number" min="0" value={form.payeezz_amount ?? ''} disabled={remarksOnly} onChange={(event) => update('payeezz_amount', event.target.value === '' ? null : Number(event.target.value))} className={inputClass} />
-          </Field>
-          <Field label="PayEezz Start Date">
-            <input type="date" value={form.payeezz_start_date || ''} disabled={remarksOnly} onChange={(event) => update('payeezz_start_date', event.target.value || null)} className={inputClass} />
-          </Field>
           <Field label="Remarks">
             <textarea value={form.remarks || ''} onChange={(event) => update('remarks', event.target.value)} className={`${inputClass} min-h-24`} />
           </Field>
@@ -1226,6 +1447,111 @@ function MemberModal({
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose} className={secondaryButtonClass}>Cancel</button>
           <button disabled={busy} className={primaryButtonClass}>{busy ? 'Saving...' : 'Save Member'}</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function BankAccountModal({
+  modal,
+  onClose,
+  onSaved,
+}: {
+  modal: Extract<ModalState, { type: 'bank' }>;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const editing = modal.mode === 'edit';
+  const bankAccount = editing ? modal.bankAccount : null;
+  const [form, setForm] = useState<MemberBankAccountPayload>({
+    bank_name: bankAccount?.bank_name || '',
+    account_number: '',
+    ifsc_code: bankAccount?.ifsc_code || '',
+    is_primary: bankAccount?.is_primary || modal.member.bank_accounts.length === 0,
+    payeezz_mandate_status: bankAccount?.payeezz_mandate_status || 'Not Started',
+    payeezz_amount: bankAccount?.payeezz_amount === null || bankAccount?.payeezz_amount === undefined ? null : Number(bankAccount.payeezz_amount),
+    payeezz_start_date: bankAccount?.payeezz_start_date || null,
+  });
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  function update<K extends keyof MemberBankAccountPayload>(key: K, value: MemberBankAccountPayload[K]) {
+    setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function buildPayload(): Partial<MemberBankAccountPayload> {
+    const payload: Partial<MemberBankAccountPayload> = {
+      bank_name: form.bank_name.trim(),
+      ifsc_code: form.ifsc_code?.trim() || null,
+      is_primary: Boolean(form.is_primary),
+      payeezz_mandate_status: form.payeezz_mandate_status,
+      payeezz_amount: form.payeezz_amount === undefined ? null : form.payeezz_amount,
+      payeezz_start_date: form.payeezz_start_date || null,
+    };
+    if (!editing || form.account_number) payload.account_number = form.account_number?.trim() || null;
+    return payload;
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setError('');
+    if (!form.bank_name.trim()) {
+      setError('Bank name is required.');
+      return;
+    }
+    if (!editing && !form.account_number?.trim()) {
+      setError('Bank account number is required.');
+      return;
+    }
+    setBusy(true);
+    try {
+      if (editing) {
+        await complianceApi.updateBankAccount(modal.member.id, modal.bankAccount.id, buildPayload());
+      } else {
+        await complianceApi.createBankAccount(modal.member.id, buildPayload() as MemberBankAccountPayload);
+      }
+      onSaved();
+    } catch (error) {
+      setError(friendlyError(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title={editing ? `Edit Bank - ${bankAccount?.bank_name}` : `Add Bank - ${modal.member.name}`} onClose={onClose}>
+      <form onSubmit={submit} className="space-y-4">
+        {error && <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="Bank Name">
+            <input value={form.bank_name} onChange={(event) => update('bank_name', event.target.value)} className={inputClass} required />
+          </Field>
+          <Field label="Bank Account">
+            <input value={form.account_number || ''} onChange={(event) => update('account_number', event.target.value)} placeholder={bankAccount?.account_number_masked ? `Stored: ${bankAccount.account_number_masked}` : 'Bank account number'} className={inputClass} required={!editing} />
+          </Field>
+          <Field label="IFSC">
+            <input value={form.ifsc_code || ''} onChange={(event) => update('ifsc_code', event.target.value)} className={inputClass} />
+          </Field>
+          <Field label="PayEezz Status">
+            <select value={form.payeezz_mandate_status} onChange={(event) => update('payeezz_mandate_status', event.target.value as PayeezzStatus)} className={inputClass}>
+              {payeezzStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
+            </select>
+          </Field>
+          <Field label="PayEezz Amount">
+            <input type="number" min="0" value={form.payeezz_amount ?? ''} onChange={(event) => update('payeezz_amount', event.target.value === '' ? null : Number(event.target.value))} className={inputClass} />
+          </Field>
+          <Field label="PayEezz Start Date">
+            <input type="date" value={form.payeezz_start_date || ''} onChange={(event) => update('payeezz_start_date', event.target.value || null)} className={inputClass} />
+          </Field>
+          <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+            <input type="checkbox" checked={Boolean(form.is_primary)} onChange={(event) => update('is_primary', event.target.checked)} />
+            Primary bank account
+          </label>
+        </div>
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className={secondaryButtonClass}>Cancel</button>
+          <button disabled={busy} className={primaryButtonClass}>{busy ? 'Saving...' : 'Save Bank'}</button>
         </div>
       </form>
     </Modal>
@@ -1432,11 +1758,11 @@ function MembersTable({
               {columns.includes('family') && <td className="px-3 py-3">{member.family_head_name}</td>}
               {columns.includes('can') && <td className="px-3 py-3">{displayCan(member)}</td>}
               {columns.includes('pan') && <td className="px-3 py-3">{member.pan_masked || '-'}</td>}
-              {columns.includes('bank') && <td className="px-3 py-3">{member.bank_name || '-'}</td>}
+              {columns.includes('bank') && <td className="px-3 py-3">{member.primary_bank_account?.bank_name || '-'}</td>}
               {columns.includes('kyc') && <td className="px-3 py-3"><StatusBadge value={member.kyc_status} /></td>}
-              {columns.includes('payeezz') && <td className="px-3 py-3"><StatusBadge value={member.payeezz_mandate_status} /></td>}
-              {columns.includes('amount') && <td className="px-3 py-3">{member.payeezz_amount ? formatINR(Number(member.payeezz_amount)) : '-'}</td>}
-              {columns.includes('start') && <td className="px-3 py-3">{formatDate(member.payeezz_start_date)}</td>}
+              {columns.includes('payeezz') && <td className="px-3 py-3"><StatusBadge value={member.effective_payeezz_mandate_status} /></td>}
+              {columns.includes('amount') && <td className="px-3 py-3">{member.primary_bank_account?.payeezz_amount ? formatINR(Number(member.primary_bank_account.payeezz_amount)) : '-'}</td>}
+              {columns.includes('start') && <td className="px-3 py-3">{formatDate(member.primary_bank_account?.payeezz_start_date)}</td>}
               {columns.includes('mobile') && <td className="px-3 py-3"><StatusBadge value={member.mobile_verification_status} /></td>}
               {columns.includes('email') && <td className="px-3 py-3"><StatusBadge value={member.email_verification_status} /></td>}
               {columns.includes('nominee') && <td className="px-3 py-3"><StatusBadge value={member.nominee_verification_status} /></td>}

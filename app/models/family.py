@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, Date, ForeignKey, Index, Numeric, String, Text, text
+from sqlalchemy import Boolean, CheckConstraint, Date, ForeignKey, Index, Numeric, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.enums import CanStatus, KycStatus, PayeezzStatus, VerificationStatus
@@ -71,11 +71,6 @@ class Member(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "nominee_verification_status in ('Verified', 'Pending Verification')",
             name="members_nominee_verification_status_valid",
         ),
-        CheckConstraint(
-            "payeezz_mandate_status in ('Not Started', 'Pending Approval', 'Approved')",
-            name="members_payeezz_mandate_status_valid",
-        ),
-        CheckConstraint("payeezz_amount is null or payeezz_amount >= 0", name="members_payeezz_amount_non_negative"),
         Index(
             "uq_members_active_can_number",
             "can_number",
@@ -88,7 +83,6 @@ class Member(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Index("ix_members_can_number", "can_number"),
         Index("ix_members_can_status", "can_status"),
         Index("ix_members_kyc_status", "kyc_status"),
-        Index("ix_members_payeezz_mandate_status", "payeezz_mandate_status"),
         Index("ix_members_mobile_verification_status", "mobile_verification_status"),
         Index("ix_members_email_verification_status", "email_verification_status"),
         Index("ix_members_nominee_verification_status", "nominee_verification_status"),
@@ -119,15 +113,54 @@ class Member(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     email_verification_status: Mapped[VerificationStatus] = mapped_column(String(32), nullable=False)
     nominee_verification_status: Mapped[VerificationStatus] = mapped_column(String(32), nullable=False)
 
-    bank_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    bank_account_number_encrypted: Mapped[str | None] = mapped_column(Text(), nullable=True)
-    bank_account_number_masked: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    bank_account_number_search_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    ifsc_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
-
-    payeezz_mandate_status: Mapped[PayeezzStatus] = mapped_column(String(32), nullable=False)
-    payeezz_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
-    payeezz_start_date: Mapped[date | None] = mapped_column(Date(), nullable=True)
     remarks: Mapped[str | None] = mapped_column(Text(), nullable=True)
 
     family: Mapped[Family] = relationship(back_populates="members")
+    bank_accounts: Mapped[list[MemberBankAccount]] = relationship(
+        back_populates="member",
+        cascade="all, delete-orphan",
+        order_by="(MemberBankAccount.is_primary.desc(), MemberBankAccount.bank_name, MemberBankAccount.id)",
+    )
+
+
+class MemberBankAccount(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "member_bank_accounts"
+    __table_args__ = (
+        CheckConstraint(
+            "payeezz_mandate_status in ('Not Started', 'Pending Approval', 'Approved')",
+            name="member_bank_accounts_payeezz_mandate_status_valid",
+        ),
+        CheckConstraint("payeezz_amount is null or payeezz_amount >= 0", name="member_bank_accounts_payeezz_amount_non_negative"),
+        Index(
+            "uq_member_bank_accounts_active_primary",
+            "member_id",
+            unique=True,
+            sqlite_where=text("deleted_at IS NULL AND is_primary = 1"),
+            postgresql_where=text("deleted_at IS NULL AND is_primary = true"),
+        ),
+        Index(
+            "uq_member_bank_accounts_active_bank",
+            "member_id",
+            "bank_name",
+            "account_number_search_hash",
+            unique=True,
+            sqlite_where=text("deleted_at IS NULL"),
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
+        Index("ix_member_bank_accounts_member_id", "member_id"),
+        Index("ix_member_bank_accounts_payeezz_mandate_status", "payeezz_mandate_status"),
+        Index("ix_member_bank_accounts_account_number_search_hash", "account_number_search_hash"),
+    )
+
+    member_id: Mapped[UUID] = mapped_column(GUID(), ForeignKey("members.id"), nullable=False)
+    bank_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    account_number_encrypted: Mapped[str] = mapped_column(Text(), nullable=False)
+    account_number_masked: Mapped[str] = mapped_column(String(64), nullable=False)
+    account_number_search_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    ifsc_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    is_primary: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    payeezz_mandate_status: Mapped[PayeezzStatus] = mapped_column(String(32), nullable=False)
+    payeezz_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    payeezz_start_date: Mapped[date | None] = mapped_column(Date(), nullable=True)
+
+    member: Mapped[Member] = relationship(back_populates="bank_accounts")

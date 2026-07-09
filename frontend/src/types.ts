@@ -18,6 +18,18 @@ export type UserMembership = {
   is_active: boolean;
 };
 
+export type CanSensitiveAccess = {
+  pan: boolean;
+  mobile: boolean;
+  email: boolean;
+  bank_account_number: boolean;
+};
+
+export type CanSensitiveAccessSettings = {
+  can_ops: CanSensitiveAccess;
+  can_rm: CanSensitiveAccess;
+};
+
 export type CurrentUser = {
   id: string;
   name: string;
@@ -25,6 +37,7 @@ export type CurrentUser = {
   role: UserRole;
   memberships: UserMembership[];
   module_codes: ModuleCode[];
+  can_sensitive_access?: CanSensitiveAccess;
   is_platform_admin: boolean;
   is_active: boolean;
   last_login_at?: string | null;
@@ -112,6 +125,20 @@ export type Family = {
   updated_at: string;
 };
 
+export type MemberBankAccount = {
+  id: string;
+  bank_name: string;
+  account_number_masked: string;
+  account_number?: string | null;
+  ifsc_code: string | null;
+  is_primary: boolean;
+  payeezz_mandate_status: PayeezzStatus;
+  payeezz_amount: string | number | null;
+  payeezz_start_date: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type Member = {
   id: string;
   family_id: string;
@@ -129,13 +156,9 @@ export type Member = {
   email?: string | null;
   email_verification_status: VerificationStatus;
   nominee_verification_status: VerificationStatus;
-  bank_name: string | null;
-  bank_account_number_masked: string | null;
-  bank_account_number?: string | null;
-  ifsc_code: string | null;
-  payeezz_mandate_status: PayeezzStatus;
-  payeezz_amount: string | number | null;
-  payeezz_start_date: string | null;
+  bank_accounts: MemberBankAccount[];
+  primary_bank_account: MemberBankAccount | null;
+  effective_payeezz_mandate_status: PayeezzStatus;
   remarks: string | null;
   family_code: string;
   family_head_name: string;
@@ -223,13 +246,17 @@ export type MemberPayload = {
   email?: string | null;
   email_verification_status: VerificationStatus;
   nominee_verification_status: VerificationStatus;
-  bank_name?: string | null;
-  bank_account_number?: string | null;
+  remarks?: string | null;
+};
+
+export type MemberBankAccountPayload = {
+  bank_name: string;
+  account_number?: string | null;
   ifsc_code?: string | null;
+  is_primary?: boolean;
   payeezz_mandate_status: PayeezzStatus;
   payeezz_amount?: number | null;
   payeezz_start_date?: string | null;
-  remarks?: string | null;
 };
 
 export type UserPayload = {

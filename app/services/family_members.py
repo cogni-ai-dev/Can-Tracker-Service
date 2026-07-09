@@ -6,7 +6,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import status
-from sqlalchemy import desc, select
+from sqlalchemy import desc, select, update
 from sqlalchemy.orm import Session
 
 from app.api.errors import raise_api_error
@@ -19,26 +19,29 @@ from app.core.pii import (
     decrypt_pii_value,
     protect_pii_value,
 )
-from app.domain.access import user_can_read_sensitive_can, user_can_write_all_can, user_has_module_role, user_is_can_rm
+from app.api.v1.users import CAN_SENSITIVE_FIELDS, can_sensitive_access_for_user
+from app.domain.access import user_can_write_all_can, user_has_module_role, user_is_can_rm
 from app.domain.compliance import CountPercentage, family_completion
-from app.domain.enums import AuditAction, AuditEntityType, ChangeSource, ModuleCode, ModuleRole
+from app.domain.enums import AuditAction, AuditEntityType, ChangeSource, ModuleCode, ModuleRole, PayeezzStatus
 from app.models.audit import AuditLog
-from app.models.family import Family, Member
+from app.models.family import Family, Member, MemberBankAccount
 from app.models.user import User
 from app.repositories import families as family_repo
 from app.repositories import members as member_repo
 from app.schemas.families import FamilyCreate, FamilyListFilters, FamilyUpdate
-from app.schemas.members import MemberCreate, MemberListFilters, MemberUpdate
+from app.schemas.members import MemberBankAccountCreate, MemberBankAccountUpdate, MemberCreate, MemberListFilters, MemberUpdate
 from app.services.audit import record_create, record_delete, record_sensitive_read, record_update
 
 PII_FIELD_ATTRS = {
     PAN_FIELD: ("pan_encrypted", "pan_masked", "pan_search_hash"),
     MOBILE_FIELD: ("mobile_encrypted", "mobile_masked", "mobile_search_hash"),
     EMAIL_FIELD: ("email_encrypted", "email_masked", "email_search_hash"),
+}
+BANK_ACCOUNT_FIELD_ATTRS = {
     BANK_ACCOUNT_NUMBER_FIELD: (
-        "bank_account_number_encrypted",
-        "bank_account_number_masked",
-        "bank_account_number_search_hash",
+        "account_number_encrypted",
+        "account_number_masked",
+        "account_number_search_hash",
     ),
 }
 GENERATED_FAMILY_CODE_PREFIX = "FAM"
@@ -142,12 +145,50 @@ def _decrypt_member_field(member: Member, field_name: str, settings: Settings) -
     return decrypt_pii_value(field_name, getattr(member, encrypted_attr), settings)
 
 
+def _decrypt_bank_account_field(bank_account: MemberBankAccount, field_name: str, settings: Settings) -> str | None:
+    encrypted_attr = BANK_ACCOUNT_FIELD_ATTRS[field_name][0]
+    return decrypt_pii_value(field_name, getattr(bank_account, encrypted_attr), settings)
+
+
 def _set_protected_member_field(member: Member, field_name: str, value: object | None, settings: Settings) -> None:
     encrypted_attr, masked_attr, search_hash_attr = PII_FIELD_ATTRS[field_name]
     protected = protect_pii_value(field_name, value, settings)
     setattr(member, encrypted_attr, protected.ciphertext)
     setattr(member, masked_attr, protected.masked)
     setattr(member, search_hash_attr, protected.search_hash)
+
+
+def _set_protected_bank_account_field(
+    bank_account: MemberBankAccount,
+    field_name: str,
+    value: object | None,
+    settings: Settings,
+) -> None:
+    encrypted_attr, masked_attr, search_hash_attr = BANK_ACCOUNT_FIELD_ATTRS[field_name]
+    protected = protect_pii_value(field_name, value, settings)
+    if protected.ciphertext is None or protected.masked is None or protected.search_hash is None:
+        _validation_error("Bank account number is required.")
+    setattr(bank_account, encrypted_attr, protected.ciphertext)
+    setattr(bank_account, masked_attr, protected.masked)
+    setattr(bank_account, search_hash_attr, protected.search_hash)
+
+
+def active_bank_accounts(member: Member) -> list[MemberBankAccount]:
+    return sorted(
+        (account for account in member.bank_accounts if account.deleted_at is None),
+        key=lambda account: (not account.is_primary, account.bank_name, str(account.id)),
+    )
+
+
+def primary_bank_account(member: Member) -> MemberBankAccount | None:
+    return next((account for account in active_bank_accounts(member) if account.is_primary), None)
+
+
+def effective_payeezz_status(member: Member) -> str:
+    primary = primary_bank_account(member)
+    if primary is None:
+        return PayeezzStatus.NOT_STARTED.value
+    return primary.payeezz_mandate_status
 
 
 def _member_audit_values(member: Member, settings: Settings) -> dict[str, object | None]:
@@ -163,14 +204,51 @@ def _member_audit_values(member: Member, settings: Settings) -> dict[str, object
         "email": _decrypt_member_field(member, EMAIL_FIELD, settings),
         "email_verification_status": member.email_verification_status,
         "nominee_verification_status": member.nominee_verification_status,
-        "bank_name": member.bank_name,
-        "bank_account_number": _decrypt_member_field(member, BANK_ACCOUNT_NUMBER_FIELD, settings),
-        "ifsc_code": member.ifsc_code,
-        "payeezz_mandate_status": member.payeezz_mandate_status,
-        "payeezz_amount": member.payeezz_amount,
-        "payeezz_start_date": member.payeezz_start_date,
         "remarks": member.remarks,
     }
+
+
+def _bank_account_audit_values(bank_account: MemberBankAccount, settings: Settings) -> dict[str, object | None]:
+    return {
+        "bank_name": bank_account.bank_name,
+        "bank_account_number": _decrypt_bank_account_field(bank_account, BANK_ACCOUNT_NUMBER_FIELD, settings),
+        "ifsc_code": bank_account.ifsc_code,
+        "is_primary": bank_account.is_primary,
+        "payeezz_mandate_status": bank_account.payeezz_mandate_status,
+        "payeezz_amount": bank_account.payeezz_amount,
+        "payeezz_start_date": bank_account.payeezz_start_date,
+    }
+
+
+def bank_account_to_response(
+    db: Session,
+    bank_account: MemberBankAccount,
+    *,
+    settings: Settings,
+    include_sensitive: bool,
+    allowed_sensitive_fields: set[str],
+    actor: User,
+    request_id: str | None,
+) -> tuple[dict[str, Any], list[str]]:
+    data = {
+        "id": bank_account.id,
+        "bank_name": bank_account.bank_name,
+        "account_number_masked": bank_account.account_number_masked,
+        "ifsc_code": bank_account.ifsc_code,
+        "is_primary": bank_account.is_primary,
+        "payeezz_mandate_status": bank_account.payeezz_mandate_status,
+        "payeezz_amount": bank_account.payeezz_amount,
+        "payeezz_start_date": bank_account.payeezz_start_date,
+        "created_at": _as_utc(bank_account.created_at),
+        "updated_at": _as_utc(bank_account.updated_at),
+    }
+    returned_sensitive_fields: list[str] = []
+    if include_sensitive and BANK_ACCOUNT_NUMBER_FIELD in allowed_sensitive_fields:
+        value = _decrypt_bank_account_field(bank_account, BANK_ACCOUNT_NUMBER_FIELD, settings)
+        if value is not None:
+            data["account_number"] = value
+            returned_sensitive_fields.append(BANK_ACCOUNT_NUMBER_FIELD)
+    return data, returned_sensitive_fields
 
 
 def _member_to_response_data(
@@ -179,6 +257,7 @@ def _member_to_response_data(
     *,
     settings: Settings,
     include_sensitive: bool,
+    allowed_sensitive_fields: set[str] | None = None,
     actor: User,
     request_id: str | None,
 ) -> tuple[dict[str, Any], list[str]]:
@@ -197,12 +276,7 @@ def _member_to_response_data(
         "email_masked": member.email_masked,
         "email_verification_status": member.email_verification_status,
         "nominee_verification_status": member.nominee_verification_status,
-        "bank_name": member.bank_name,
-        "bank_account_number_masked": member.bank_account_number_masked,
-        "ifsc_code": member.ifsc_code,
-        "payeezz_mandate_status": member.payeezz_mandate_status,
-        "payeezz_amount": member.payeezz_amount,
-        "payeezz_start_date": member.payeezz_start_date,
+        "effective_payeezz_mandate_status": effective_payeezz_status(member),
         "remarks": member.remarks,
         "family_code": family.family_code,
         "family_head_name": family.family_head_name,
@@ -213,8 +287,30 @@ def _member_to_response_data(
     }
 
     returned_sensitive_fields: list[str] = []
+    allowed_sensitive_fields = allowed_sensitive_fields or set()
+    bank_account_items = []
+    primary_bank_item = None
+    for bank_account in active_bank_accounts(member):
+        item, bank_sensitive_fields = bank_account_to_response(
+            db,
+            bank_account,
+            settings=settings,
+            include_sensitive=include_sensitive,
+            allowed_sensitive_fields=allowed_sensitive_fields,
+            actor=actor,
+            request_id=request_id,
+        )
+        returned_sensitive_fields.extend(bank_sensitive_fields)
+        bank_account_items.append(item)
+        if bank_account.is_primary:
+            primary_bank_item = item
+    data["bank_accounts"] = bank_account_items
+    data["primary_bank_account"] = primary_bank_item
+
     if include_sensitive:
         for field_name in PII_FIELD_ATTRS:
+            if field_name not in allowed_sensitive_fields:
+                continue
             value = _decrypt_member_field(member, field_name, settings)
             if value is not None:
                 data[field_name] = value
@@ -233,9 +329,14 @@ def _member_to_response_data(
     return data, returned_sensitive_fields
 
 
-def _ensure_sensitive_read_allowed(actor: User, include_sensitive: bool) -> None:
-    if include_sensitive and not user_can_read_sensitive_can(actor):
-        _forbidden("Only admin users can request full sensitive member values.")
+def _allowed_sensitive_fields(actor: User, db: Session, include_sensitive: bool) -> set[str]:
+    if not include_sensitive:
+        return set()
+    access = can_sensitive_access_for_user(actor, db)
+    allowed = {field_name for field_name in CAN_SENSITIVE_FIELDS if access.get(field_name)}
+    if not allowed:
+        _forbidden("Your role is not permitted to reveal sensitive member values.")
+    return allowed
 
 
 def _ensure_family_update_allowed(actor: User, family: Family, payload: FamilyUpdate) -> None:
@@ -473,7 +574,7 @@ def list_member_records(
     include_sensitive: bool,
     request_id: str | None,
 ) -> dict[str, Any]:
-    _ensure_sensitive_read_allowed(actor, include_sensitive)
+    allowed_sensitive_fields = _allowed_sensitive_fields(actor, db, include_sensitive)
     members, total = member_repo.list_members(
         db,
         user=actor,
@@ -498,6 +599,7 @@ def list_member_records(
             member,
             settings=settings,
             include_sensitive=include_sensitive,
+            allowed_sensitive_fields=allowed_sensitive_fields,
             actor=actor,
             request_id=request_id,
         )
@@ -522,7 +624,7 @@ def get_member_record(
     include_sensitive: bool,
     request_id: str | None,
 ) -> dict[str, Any]:
-    _ensure_sensitive_read_allowed(actor, include_sensitive)
+    allowed_sensitive_fields = _allowed_sensitive_fields(actor, db, include_sensitive)
     member = member_repo.get_active_member(db, member_id, actor)
     if member is None:
         _not_found("member")
@@ -531,6 +633,7 @@ def get_member_record(
         member,
         settings=settings,
         include_sensitive=include_sensitive,
+        allowed_sensitive_fields=allowed_sensitive_fields,
         actor=actor,
         request_id=request_id,
     )
@@ -551,6 +654,7 @@ def member_to_response(
         member,
         settings=settings,
         include_sensitive=False,
+        allowed_sensitive_fields=set(),
         actor=actor,
         request_id=None,
     )
@@ -581,20 +685,82 @@ def _apply_member_payload(member: Member, payload: MemberCreate | MemberUpdate, 
         member.email_verification_status = payload.email_verification_status
     if "nominee_verification_status" in fields:
         member.nominee_verification_status = payload.nominee_verification_status
-    if "bank_name" in fields:
-        member.bank_name = payload.bank_name
-    if "bank_account_number" in fields:
-        _set_protected_member_field(member, BANK_ACCOUNT_NUMBER_FIELD, payload.bank_account_number, settings)
-    if "ifsc_code" in fields:
-        member.ifsc_code = payload.ifsc_code
-    if "payeezz_mandate_status" in fields:
-        member.payeezz_mandate_status = payload.payeezz_mandate_status
-    if "payeezz_amount" in fields:
-        member.payeezz_amount = payload.payeezz_amount
-    if "payeezz_start_date" in fields:
-        member.payeezz_start_date = payload.payeezz_start_date
     if "remarks" in fields:
         member.remarks = payload.remarks
+
+
+def _ensure_bank_account_write_allowed(actor: User, member: Member) -> None:
+    if user_can_write_all_can(actor):
+        return
+    _forbidden("Only CAN Admin and CAN Ops can manage bank accounts.")
+
+
+def _active_bank_accounts_query(db: Session, member_id: UUID) -> list[MemberBankAccount]:
+    return list(
+        db.scalars(
+            select(MemberBankAccount).where(
+                MemberBankAccount.member_id == member_id,
+                MemberBankAccount.deleted_at.is_(None),
+            )
+        ).all()
+    )
+
+
+def _ensure_bank_account_available(
+    db: Session,
+    *,
+    member_id: UUID,
+    bank_name: str,
+    account_number_search_hash: str,
+    existing_bank_account_id: UUID | None = None,
+) -> None:
+    filters = [
+        MemberBankAccount.member_id == member_id,
+        MemberBankAccount.bank_name == bank_name,
+        MemberBankAccount.account_number_search_hash == account_number_search_hash,
+        MemberBankAccount.deleted_at.is_(None),
+    ]
+    if existing_bank_account_id is not None:
+        filters.append(MemberBankAccount.id != existing_bank_account_id)
+    if db.scalar(select(MemberBankAccount.id).where(*filters).limit(1)) is not None:
+        _conflict("bank_account_already_exists", "An active bank account with this bank name and account number already exists for the member.")
+
+
+def _apply_bank_account_payload(
+    bank_account: MemberBankAccount,
+    payload: MemberBankAccountCreate | MemberBankAccountUpdate,
+    settings: Settings,
+) -> None:
+    fields = payload.model_fields_set
+    if "bank_name" in fields:
+        bank_account.bank_name = payload.bank_name
+    if "account_number" in fields:
+        _set_protected_bank_account_field(bank_account, BANK_ACCOUNT_NUMBER_FIELD, payload.account_number, settings)
+    if "ifsc_code" in fields:
+        bank_account.ifsc_code = payload.ifsc_code
+    if "is_primary" in fields:
+        bank_account.is_primary = bool(payload.is_primary)
+    if "payeezz_mandate_status" in fields:
+        bank_account.payeezz_mandate_status = payload.payeezz_mandate_status
+    if "payeezz_amount" in fields:
+        bank_account.payeezz_amount = payload.payeezz_amount
+    if "payeezz_start_date" in fields:
+        bank_account.payeezz_start_date = payload.payeezz_start_date
+
+
+def _promote_primary(db: Session, member_id: UUID, bank_account: MemberBankAccount) -> None:
+    bank_account.is_primary = False
+    db.execute(
+        update(MemberBankAccount)
+        .where(
+            MemberBankAccount.member_id == member_id,
+            MemberBankAccount.id != bank_account.id,
+            MemberBankAccount.deleted_at.is_(None),
+        )
+        .values(is_primary=False)
+    )
+    db.flush()
+    bank_account.is_primary = True
 
 
 def create_member_record(
@@ -676,6 +842,162 @@ def update_member_record(
     )
 
 
+def create_member_bank_account(
+    db: Session,
+    *,
+    member_id: UUID,
+    payload: MemberBankAccountCreate,
+    actor: User,
+    settings: Settings,
+    request_id: str | None,
+) -> dict[str, Any]:
+    member = member_repo.get_active_member(db, member_id, actor)
+    if member is None:
+        _not_found("member")
+    _ensure_bank_account_write_allowed(actor, member)
+    active_accounts = _active_bank_accounts_query(db, member.id)
+    bank_account = MemberBankAccount(
+        member_id=member.id,
+        payeezz_mandate_status=PayeezzStatus.NOT_STARTED,
+        is_primary=payload.is_primary or not active_accounts,
+    )
+    db.add(bank_account)
+    _apply_bank_account_payload(bank_account, payload, settings)
+    if not active_accounts:
+        bank_account.is_primary = True
+    _ensure_bank_account_available(
+        db,
+        member_id=member.id,
+        bank_name=bank_account.bank_name,
+        account_number_search_hash=bank_account.account_number_search_hash,
+    )
+    if bank_account.is_primary:
+        _promote_primary(db, member.id, bank_account)
+    db.flush()
+    record_update(
+        db,
+        entity_type=AuditEntityType.MEMBER,
+        entity_id=member.id,
+        old_values={},
+        new_values={f"bank_account:{bank_account.id}": "created", **_bank_account_audit_values(bank_account, settings)},
+        actor_user_id=actor.id,
+        source=ChangeSource.MANUAL,
+        request_id=request_id,
+    )
+    db.commit()
+    db.refresh(bank_account)
+    data, _fields = bank_account_to_response(
+        db,
+        bank_account,
+        settings=settings,
+        include_sensitive=False,
+        allowed_sensitive_fields=set(),
+        actor=actor,
+        request_id=request_id,
+    )
+    return data
+
+
+def update_member_bank_account(
+    db: Session,
+    *,
+    member_id: UUID,
+    bank_account_id: UUID,
+    payload: MemberBankAccountUpdate,
+    actor: User,
+    settings: Settings,
+    request_id: str | None,
+) -> dict[str, Any]:
+    member = member_repo.get_active_member(db, member_id, actor)
+    if member is None:
+        _not_found("member")
+    _ensure_bank_account_write_allowed(actor, member)
+    bank_account = db.scalar(
+        select(MemberBankAccount).where(
+            MemberBankAccount.id == bank_account_id,
+            MemberBankAccount.member_id == member.id,
+            MemberBankAccount.deleted_at.is_(None),
+        )
+    )
+    if bank_account is None:
+        _not_found("bank_account")
+    old_values = _bank_account_audit_values(bank_account, settings)
+    _apply_bank_account_payload(bank_account, payload, settings)
+    _ensure_bank_account_available(
+        db,
+        member_id=member.id,
+        bank_name=bank_account.bank_name,
+        account_number_search_hash=bank_account.account_number_search_hash,
+        existing_bank_account_id=bank_account.id,
+    )
+    active_accounts = _active_bank_accounts_query(db, member.id)
+    if bank_account.is_primary:
+        _promote_primary(db, member.id, bank_account)
+    elif old_values.get("is_primary") is True and len(active_accounts) > 1:
+        _validation_error("A member with multiple bank accounts must have exactly one primary account.")
+    db.flush()
+    record_update(
+        db,
+        entity_type=AuditEntityType.MEMBER,
+        entity_id=member.id,
+        old_values=old_values,
+        new_values=_bank_account_audit_values(bank_account, settings),
+        actor_user_id=actor.id,
+        source=ChangeSource.MANUAL,
+        request_id=request_id,
+    )
+    db.commit()
+    db.refresh(bank_account)
+    data, _fields = bank_account_to_response(
+        db,
+        bank_account,
+        settings=settings,
+        include_sensitive=False,
+        allowed_sensitive_fields=set(),
+        actor=actor,
+        request_id=request_id,
+    )
+    return data
+
+
+def delete_member_bank_account(
+    db: Session,
+    *,
+    member_id: UUID,
+    bank_account_id: UUID,
+    actor: User,
+    request_id: str | None,
+) -> None:
+    member = member_repo.get_active_member(db, member_id, actor)
+    if member is None:
+        _not_found("member")
+    _ensure_bank_account_write_allowed(actor, member)
+    bank_account = db.scalar(
+        select(MemberBankAccount).where(
+            MemberBankAccount.id == bank_account_id,
+            MemberBankAccount.member_id == member.id,
+            MemberBankAccount.deleted_at.is_(None),
+        )
+    )
+    if bank_account is None:
+        _not_found("bank_account")
+    active_accounts = _active_bank_accounts_query(db, member.id)
+    if bank_account.is_primary and len(active_accounts) > 1:
+        _validation_error("Set another bank account as primary before deleting this primary account.")
+    bank_account.deleted_at = _utc_now()
+    record_update(
+        db,
+        entity_type=AuditEntityType.MEMBER,
+        entity_id=member.id,
+        old_values={f"bank_account:{bank_account.id}": "active"},
+        new_values={f"bank_account:{bank_account.id}": "deleted"},
+        actor_user_id=actor.id,
+        source=ChangeSource.MANUAL,
+        request_id=request_id,
+    )
+    db.commit()
+
+
 def delete_member_record(
     db: Session,
     *,
@@ -700,7 +1022,9 @@ def delete_member_record(
 
 __all__ = [
     "create_family_record",
+    "create_member_bank_account",
     "create_member_record",
+    "delete_member_bank_account",
     "delete_family_record",
     "delete_member_record",
     "family_to_response",
@@ -709,6 +1033,7 @@ __all__ = [
     "list_family_records",
     "list_member_records",
     "member_to_response",
+    "update_member_bank_account",
     "update_family_record",
     "update_member_record",
 ]

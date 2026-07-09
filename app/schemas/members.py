@@ -91,12 +91,6 @@ class MemberCreate(BaseModel):
     email: str | None = Field(default=None, max_length=320)
     email_verification_status: VerificationStatus
     nominee_verification_status: VerificationStatus
-    bank_name: str | None = Field(default=None, max_length=200)
-    bank_account_number: str | None = Field(default=None, max_length=64)
-    ifsc_code: str | None = Field(default=None, max_length=32)
-    payeezz_mandate_status: PayeezzStatus
-    payeezz_amount: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=2)
-    payeezz_start_date: date | None = None
     remarks: str | None = Field(default=None, max_length=5000)
 
     @field_validator("name")
@@ -129,20 +123,10 @@ class MemberCreate(BaseModel):
     def validate_email(cls, value: str | None) -> str | None:
         return normalize_email(value)
 
-    @field_validator("bank_name", "remarks")
+    @field_validator("remarks")
     @classmethod
     def validate_optional_text(cls, value: str | None) -> str | None:
         return optional_stripped(value)
-
-    @field_validator("bank_account_number")
-    @classmethod
-    def validate_bank_account_number(cls, value: str | None) -> str | None:
-        return normalize_bank_account_number(value)
-
-    @field_validator("ifsc_code")
-    @classmethod
-    def validate_ifsc_code(cls, value: str | None) -> str | None:
-        return normalize_ifsc(value)
 
     @model_validator(mode="after")
     def default_can_status(self) -> "MemberCreate":
@@ -166,12 +150,6 @@ class MemberUpdate(BaseModel):
     email: str | None = Field(default=None, max_length=320)
     email_verification_status: VerificationStatus | None = None
     nominee_verification_status: VerificationStatus | None = None
-    bank_name: str | None = Field(default=None, max_length=200)
-    bank_account_number: str | None = Field(default=None, max_length=64)
-    ifsc_code: str | None = Field(default=None, max_length=32)
-    payeezz_mandate_status: PayeezzStatus | None = None
-    payeezz_amount: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=2)
-    payeezz_start_date: date | None = None
     remarks: str | None = Field(default=None, max_length=5000)
 
     @field_validator("name")
@@ -204,20 +182,10 @@ class MemberUpdate(BaseModel):
     def validate_email(cls, value: str | None) -> str | None:
         return normalize_email(value)
 
-    @field_validator("bank_name", "remarks")
+    @field_validator("remarks")
     @classmethod
     def validate_optional_text(cls, value: str | None) -> str | None:
         return optional_stripped(value)
-
-    @field_validator("bank_account_number")
-    @classmethod
-    def validate_bank_account_number(cls, value: str | None) -> str | None:
-        return normalize_bank_account_number(value)
-
-    @field_validator("ifsc_code")
-    @classmethod
-    def validate_ifsc_code(cls, value: str | None) -> str | None:
-        return normalize_ifsc(value)
 
     @model_validator(mode="after")
     def require_update_field(self) -> "MemberUpdate":
@@ -229,7 +197,6 @@ class MemberUpdate(BaseModel):
             "mobile_verification_status",
             "email_verification_status",
             "nominee_verification_status",
-            "payeezz_mandate_status",
             "can_status",
         ):
             if field_name in self.model_fields_set and getattr(self, field_name) is None:
@@ -245,6 +212,90 @@ class MemberUpdate(BaseModel):
                     f"{'present' if self.can_number else 'blank'}."
                 )
         return self
+
+
+class MemberBankAccountBase(BaseModel):
+    bank_name: str = Field(min_length=1, max_length=200)
+    account_number: str = Field(min_length=1, max_length=64)
+    ifsc_code: str | None = Field(default=None, max_length=32)
+    is_primary: bool = False
+    payeezz_mandate_status: PayeezzStatus = PayeezzStatus.NOT_STARTED
+    payeezz_amount: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=2)
+    payeezz_start_date: date | None = None
+
+    @field_validator("bank_name")
+    @classmethod
+    def validate_bank_name(cls, value: str) -> str:
+        return non_blank(value, "Bank name")
+
+    @field_validator("account_number")
+    @classmethod
+    def validate_account_number(cls, value: str) -> str:
+        normalized = normalize_bank_account_number(value)
+        if normalized is None:
+            raise ValueError("Bank account number is required.")
+        return normalized
+
+    @field_validator("ifsc_code")
+    @classmethod
+    def validate_ifsc_code(cls, value: str | None) -> str | None:
+        return normalize_ifsc(value)
+
+
+class MemberBankAccountCreate(MemberBankAccountBase):
+    pass
+
+
+class MemberBankAccountUpdate(BaseModel):
+    bank_name: str | None = Field(default=None, min_length=1, max_length=200)
+    account_number: str | None = Field(default=None, min_length=1, max_length=64)
+    ifsc_code: str | None = Field(default=None, max_length=32)
+    is_primary: bool | None = None
+    payeezz_mandate_status: PayeezzStatus | None = None
+    payeezz_amount: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=2)
+    payeezz_start_date: date | None = None
+
+    @field_validator("bank_name")
+    @classmethod
+    def validate_bank_name(cls, value: str | None) -> str | None:
+        return None if value is None else non_blank(value, "Bank name")
+
+    @field_validator("account_number")
+    @classmethod
+    def validate_account_number(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = normalize_bank_account_number(value)
+        if normalized is None:
+            raise ValueError("Bank account number is required.")
+        return normalized
+
+    @field_validator("ifsc_code")
+    @classmethod
+    def validate_ifsc_code(cls, value: str | None) -> str | None:
+        return normalize_ifsc(value)
+
+    @model_validator(mode="after")
+    def require_update_field(self) -> "MemberBankAccountUpdate":
+        if not self.model_fields_set:
+            raise ValueError("At least one field must be provided.")
+        return self
+
+
+class MemberBankAccountRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    bank_name: str
+    account_number_masked: str
+    account_number: str | None = None
+    ifsc_code: str | None = None
+    is_primary: bool
+    payeezz_mandate_status: PayeezzStatus
+    payeezz_amount: Decimal | None = None
+    payeezz_start_date: date | None = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class MemberRead(BaseModel):
@@ -266,13 +317,9 @@ class MemberRead(BaseModel):
     email: str | None = None
     email_verification_status: VerificationStatus
     nominee_verification_status: VerificationStatus
-    bank_name: str | None = None
-    bank_account_number_masked: str | None = None
-    bank_account_number: str | None = None
-    ifsc_code: str | None = None
-    payeezz_mandate_status: PayeezzStatus
-    payeezz_amount: Decimal | None = None
-    payeezz_start_date: date | None = None
+    bank_accounts: list[MemberBankAccountRead] = Field(default_factory=list)
+    primary_bank_account: MemberBankAccountRead | None = None
+    effective_payeezz_mandate_status: PayeezzStatus
     remarks: str | None = None
     family_code: str
     family_head_name: str

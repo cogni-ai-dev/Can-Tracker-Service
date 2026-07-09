@@ -121,12 +121,31 @@ const member: Member = {
   email_masked: 'n***@example.test',
   email_verification_status: 'Pending Verification',
   nominee_verification_status: 'Pending Verification',
-  bank_name: 'HDFC',
-  bank_account_number_masked: '****1234',
-  ifsc_code: 'HDFC0000001',
-  payeezz_mandate_status: 'Pending Approval',
-  payeezz_amount: 10000,
-  payeezz_start_date: '2026-01-01',
+  bank_accounts: [{
+    id: 'bank-1',
+    bank_name: 'HDFC',
+    account_number_masked: 'bank account ending 1234',
+    ifsc_code: 'HDFC0000001',
+    is_primary: true,
+    payeezz_mandate_status: 'Pending Approval',
+    payeezz_amount: 10000,
+    payeezz_start_date: '2026-01-01',
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  }],
+  primary_bank_account: {
+    id: 'bank-1',
+    bank_name: 'HDFC',
+    account_number_masked: 'bank account ending 1234',
+    ifsc_code: 'HDFC0000001',
+    is_primary: true,
+    payeezz_mandate_status: 'Pending Approval',
+    payeezz_amount: 10000,
+    payeezz_start_date: '2026-01-01',
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  },
+  effective_payeezz_mandate_status: 'Pending Approval',
   remarks: null,
   family_code: family.family_code,
   family_head_name: family.family_head_name,
@@ -134,6 +153,15 @@ const member: Member = {
   updated_at: '2026-01-03T00:00:00Z',
   updated_by: rm,
   created_at: '2026-01-01T00:00:00Z',
+};
+
+const revealedMember: Member = {
+  ...member,
+  pan: 'ABCDE1234F',
+  mobile: '9876543210',
+  email: 'nisha@example.test',
+  bank_accounts: member.bank_accounts.map((account) => ({ ...account, account_number: '001122334455' })),
+  primary_bank_account: member.primary_bank_account ? { ...member.primary_bank_account, account_number: '001122334455' } : null,
 };
 
 const unassignedMember: Member = {
@@ -184,6 +212,18 @@ function installFetch(user: CurrentUser) {
     if (url.pathname === '/api/v1/families') return json({ items: [family], total: 1, limit: 500, offset: 0 });
     if (url.pathname === '/api/v1/members') return json({ items: [member], total: 1, limit: 500, offset: 0 });
     if (url.pathname === '/api/v1/users') return json([canUser, crmUser]);
+    if (url.pathname === '/api/v1/admin/can-sensitive-access') {
+      if (method === 'PATCH') {
+        return json(JSON.parse(String(init?.body || '{}')));
+      }
+      return json({
+        can_ops: { pan: true, mobile: true, email: true, bank_account_number: true },
+        can_rm: { pan: false, mobile: false, email: false, bank_account_number: false },
+      });
+    }
+    if (url.pathname === `/api/v1/members/${member.id}` && url.searchParams.get('include_sensitive') === 'true') {
+      return json(revealedMember);
+    }
     if (url.pathname === `/api/v1/dashboard/families/${family.id}`) {
       return json({ ...family, number_of_members: 1, members: [member] });
     }
@@ -253,8 +293,33 @@ describe('MFU Operations Portal shell', () => {
     expect(await screen.findByText('Shah Family')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Add Member' }).length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument();
+    expect(screen.getByText('HDFC')).toBeInTheDocument();
+    expect(screen.getByText('Primary')).toBeInTheDocument();
+    expect(screen.getByText('bank account ending 1234 | HDFC0000001')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Delete Family' })).toBeInTheDocument();
+  });
+
+  it('opens member details masked first and reveals sensitive values on request', async () => {
+    const user = userEvent.setup();
+    const calls = renderApp('#/compliance/families/family-1', canUser);
+
+    expect(await screen.findByText('Shah Family')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'View Details' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Member Details' });
+    expect(within(dialog).getByText('ABCDE****F')).toBeInTheDocument();
+    expect(within(dialog).getByText('******3210')).toBeInTheDocument();
+    expect(within(dialog).getByText('n***@example.test')).toBeInTheDocument();
+    expect(within(dialog).getByText('bank account ending 1234')).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Reveal Sensitive Data' }));
+
+    expect(await within(dialog).findByText('ABCDE1234F')).toBeInTheDocument();
+    expect(within(dialog).getByText('9876543210')).toBeInTheDocument();
+    expect(within(dialog).getByText('nisha@example.test')).toBeInTheDocument();
+    expect(within(dialog).getByText('001122334455')).toBeInTheDocument();
+    expect(calls).toContain('GET /api/v1/members/member-1?include_sensitive=true');
   });
 
   it('requires typed confirmation before deleting a family', async () => {
@@ -322,6 +387,19 @@ describe('MFU Operations Portal shell', () => {
     expect(screen.getByText('Full CAN access, user management, audit logs, imports, and sensitive values.')).toBeInTheDocument();
     expect(screen.getByText('Create, edit, import, and report across CAN records. No delete, user management, or audit logs.')).toBeInTheDocument();
     expect(screen.getByText('Can manage CRM users and CRM module access.')).toBeInTheDocument();
+    expect(await screen.findByText('Sensitive Member Detail Access')).toBeInTheDocument();
+  });
+
+  it('lets CAN Admin update role-level sensitive access settings', async () => {
+    const user = userEvent.setup();
+    const calls = renderApp('#/admin/users', canUser);
+
+    expect(await screen.findByText('Sensitive Member Detail Access')).toBeInTheDocument();
+    const rmPan = screen.getAllByRole('checkbox')[4];
+    await user.click(rmPan);
+    await user.click(screen.getByRole('button', { name: 'Save Access' }));
+
+    await waitFor(() => expect(calls).toContain('PATCH /api/v1/admin/can-sensitive-access'));
   });
 
   it('requires typed confirmation before deactivating a user', async () => {

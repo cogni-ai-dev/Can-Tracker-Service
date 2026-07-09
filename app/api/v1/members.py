@@ -8,11 +8,22 @@ from app.api.deps import get_app_settings, get_db, get_request_id, require_modul
 from app.core.config import Settings
 from app.domain.enums import CanStatus, KycStatus, ModuleCode, ModuleRole, PayeezzStatus, VerificationStatus
 from app.models.user import User
-from app.schemas.members import MemberListFilters, MemberListResponse, MemberRead, MemberUpdate
+from app.schemas.members import (
+    MemberBankAccountCreate,
+    MemberBankAccountRead,
+    MemberBankAccountUpdate,
+    MemberListFilters,
+    MemberListResponse,
+    MemberRead,
+    MemberUpdate,
+)
 from app.services.family_members import (
+    create_member_bank_account,
     delete_member_record,
+    delete_member_bank_account,
     get_member_record,
     list_member_records,
+    update_member_bank_account,
     update_member_record,
 )
 
@@ -26,6 +37,7 @@ require_member_read = require_module_roles(
     ModuleRole.CAN_MANAGEMENT,
 )
 require_member_delete = require_module_roles(ModuleCode.CAN_COMPLIANCE, ModuleRole.CAN_ADMIN)
+require_bank_account_write = require_module_roles(ModuleCode.CAN_COMPLIANCE, ModuleRole.CAN_ADMIN, ModuleRole.CAN_OPS)
 
 
 def _request_id(request: Request) -> str | None:
@@ -113,6 +125,72 @@ def update_member(
         payload=payload,
         actor=current_user,
         settings=settings,
+        request_id=_request_id(request),
+    )
+
+
+@router.post(
+    "/{member_id}/bank-accounts",
+    response_model=MemberBankAccountRead,
+    status_code=status.HTTP_201_CREATED,
+    response_model_exclude_none=True,
+)
+def create_bank_account(
+    member_id: UUID,
+    payload: MemberBankAccountCreate,
+    request: Request,
+    current_user: User = Depends(require_bank_account_write),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_app_settings),
+) -> dict[str, object]:
+    return create_member_bank_account(
+        db,
+        member_id=member_id,
+        payload=payload,
+        actor=current_user,
+        settings=settings,
+        request_id=_request_id(request),
+    )
+
+
+@router.patch(
+    "/{member_id}/bank-accounts/{bank_account_id}",
+    response_model=MemberBankAccountRead,
+    response_model_exclude_none=True,
+)
+def update_bank_account(
+    member_id: UUID,
+    bank_account_id: UUID,
+    payload: MemberBankAccountUpdate,
+    request: Request,
+    current_user: User = Depends(require_bank_account_write),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_app_settings),
+) -> dict[str, object]:
+    return update_member_bank_account(
+        db,
+        member_id=member_id,
+        bank_account_id=bank_account_id,
+        payload=payload,
+        actor=current_user,
+        settings=settings,
+        request_id=_request_id(request),
+    )
+
+
+@router.delete("/{member_id}/bank-accounts/{bank_account_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_bank_account(
+    member_id: UUID,
+    bank_account_id: UUID,
+    request: Request,
+    current_user: User = Depends(require_bank_account_write),
+    db: Session = Depends(get_db),
+) -> None:
+    delete_member_bank_account(
+        db,
+        member_id=member_id,
+        bank_account_id=bank_account_id,
+        actor=current_user,
         request_id=_request_id(request),
     )
 

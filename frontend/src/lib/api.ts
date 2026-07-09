@@ -1,9 +1,12 @@
 import type {
   CurrentUser,
+  CanSensitiveAccessSettings,
   DashboardSummary,
   Family,
   FamilyDashboard,
   FamilyPayload,
+  MemberBankAccount,
+  MemberBankAccountPayload,
   ListResponse,
   Member,
   MemberPayload,
@@ -143,9 +146,16 @@ export const complianceApi = {
     offset?: number;
   }) => api.get<ListResponse<Member>>('/members', params),
   member: (memberId: string) => api.get<Member>(`/members/${memberId}`),
+  memberSensitive: (memberId: string) => api.get<Member>(`/members/${memberId}`, { include_sensitive: true }),
   createMember: (familyId: string, payload: MemberPayload) => api.post<Member>(`/families/${familyId}/members`, payload),
   updateMember: (memberId: string, payload: Partial<MemberPayload>) => api.patch<Member>(`/members/${memberId}`, payload),
   deleteMember: (memberId: string) => api.delete<void>(`/members/${memberId}`),
+  createBankAccount: (memberId: string, payload: MemberBankAccountPayload) =>
+    api.post<MemberBankAccount>(`/members/${memberId}/bank-accounts`, payload),
+  updateBankAccount: (memberId: string, bankAccountId: string, payload: Partial<MemberBankAccountPayload>) =>
+    api.patch<MemberBankAccount>(`/members/${memberId}/bank-accounts/${bankAccountId}`, payload),
+  deleteBankAccount: (memberId: string, bankAccountId: string) =>
+    api.delete<void>(`/members/${memberId}/bank-accounts/${bankAccountId}`),
   tasks: (params?: { type?: TaskType | 'all'; rm_id?: string; family_id?: string; q?: string; priority?: string; limit?: number; offset?: number }) => {
     const normalized = { ...params };
     if (normalized.type === 'all') delete normalized.type;
@@ -161,6 +171,8 @@ export const complianceApi = {
 
 export const usersApi = {
   list: (params?: { include_inactive?: boolean }) => api.get<UserRecord[]>('/users', params),
+  sensitiveAccess: () => api.get<CanSensitiveAccessSettings>('/admin/can-sensitive-access'),
+  updateSensitiveAccess: (payload: CanSensitiveAccessSettings) => api.patch<CanSensitiveAccessSettings>('/admin/can-sensitive-access', payload),
   create: (payload: UserPayload) => api.post<UserRecord>('/users', payload),
   update: (userId: string, payload: UserPayload) => api.patch<UserRecord>(`/users/${userId}`, payload),
   deactivate: (userId: string) => api.delete<void>(`/users/${userId}`),

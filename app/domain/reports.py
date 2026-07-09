@@ -4,6 +4,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from app.domain.compliance import payeezz_status
 from app.domain.enums import KycStatus, PayeezzStatus, ReportType, TaskType, VerificationStatus
 from app.domain.records import active, value
 
@@ -33,15 +34,7 @@ def kyc_pending_filter(member: Any) -> bool:
 
 
 def payeezz_pending_filter(member: Any) -> bool:
-    return (
-        active(member)
-        and value(
-            member,
-            "payeezz_mandate_status",
-            "payeezz",
-        )
-        != PayeezzStatus.APPROVED.value
-    )
+    return active(member) and payeezz_status(member) != PayeezzStatus.APPROVED.value
 
 
 def contact_pending_filter(member: Any) -> bool:

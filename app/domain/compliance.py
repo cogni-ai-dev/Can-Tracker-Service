@@ -100,6 +100,23 @@ def _count_status(members: tuple[Any, ...], canonical_name: str, frontend_name: 
     return sum(1 for member in members if _status(member, canonical_name, frontend_name) == status)
 
 
+def _active_bank_accounts(record: Any) -> tuple[Any, ...]:
+    accounts = value(record, "bank_accounts", default=()) or ()
+    return tuple(account for account in accounts if active(account))
+
+
+def payeezz_status(record: Any) -> str:
+    effective = value(record, "effective_payeezz_mandate_status", "payeezz_mandate_status", "payeezz", default=None)
+    if effective is not None:
+        return effective
+    primary = value(record, "primary_bank_account", default=None)
+    if primary is None:
+        primary = next((account for account in _active_bank_accounts(record) if value(account, "is_primary", default=False)), None)
+    if primary is None:
+        return PayeezzStatus.NOT_STARTED.value
+    return value(primary, "payeezz_mandate_status", default=PayeezzStatus.NOT_STARTED.value)
+
+
 def kyc_counts(members: Iterable[Any]) -> KycMetrics:
     records = _members_tuple(members)
     total = len(records)
@@ -120,24 +137,9 @@ def kyc_counts(members: Iterable[Any]) -> KycMetrics:
 def payeezz_counts(members: Iterable[Any]) -> PayeezzMetrics:
     records = _members_tuple(members)
     total = len(records)
-    approved = _count_status(
-        records,
-        "payeezz_mandate_status",
-        "payeezz",
-        PayeezzStatus.APPROVED.value,
-    )
-    pending_approval = _count_status(
-        records,
-        "payeezz_mandate_status",
-        "payeezz",
-        PayeezzStatus.PENDING_APPROVAL.value,
-    )
-    not_started = _count_status(
-        records,
-        "payeezz_mandate_status",
-        "payeezz",
-        PayeezzStatus.NOT_STARTED.value,
-    )
+    approved = sum(1 for member in records if payeezz_status(member) == PayeezzStatus.APPROVED.value)
+    pending_approval = sum(1 for member in records if payeezz_status(member) == PayeezzStatus.PENDING_APPROVAL.value)
+    not_started = sum(1 for member in records if payeezz_status(member) == PayeezzStatus.NOT_STARTED.value)
     pending = pending_approval + not_started
     return PayeezzMetrics(
         total_members=total,
