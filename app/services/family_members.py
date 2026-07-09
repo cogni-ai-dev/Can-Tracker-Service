@@ -203,6 +203,7 @@ def _member_audit_values(member: Member, settings: Settings) -> dict[str, object
         "mobile_verification_status": member.mobile_verification_status,
         "email": _decrypt_member_field(member, EMAIL_FIELD, settings),
         "email_verification_status": member.email_verification_status,
+        "nominee_name": member.nominee_name,
         "nominee_verification_status": member.nominee_verification_status,
         "remarks": member.remarks,
     }
@@ -275,6 +276,7 @@ def _member_to_response_data(
         "mobile_verification_status": member.mobile_verification_status,
         "email_masked": member.email_masked,
         "email_verification_status": member.email_verification_status,
+        "nominee_name": member.nominee_name,
         "nominee_verification_status": member.nominee_verification_status,
         "effective_payeezz_mandate_status": effective_payeezz_status(member),
         "remarks": member.remarks,
@@ -683,6 +685,8 @@ def _apply_member_payload(member: Member, payload: MemberCreate | MemberUpdate, 
         _set_protected_member_field(member, EMAIL_FIELD, payload.email, settings)
     if "email_verification_status" in fields:
         member.email_verification_status = payload.email_verification_status
+    if "nominee_name" in fields:
+        member.nominee_name = payload.nominee_name
     if "nominee_verification_status" in fields:
         member.nominee_verification_status = payload.nominee_verification_status
     if "remarks" in fields:

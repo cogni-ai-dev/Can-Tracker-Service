@@ -155,6 +155,7 @@ export type Member = {
   email_masked: string | null;
   email?: string | null;
   email_verification_status: VerificationStatus;
+  nominee_name?: string | null;
   nominee_verification_status: VerificationStatus;
   bank_accounts: MemberBankAccount[];
   primary_bank_account: MemberBankAccount | null;
@@ -245,6 +246,7 @@ export type MemberPayload = {
   mobile_verification_status: VerificationStatus;
   email?: string | null;
   email_verification_status: VerificationStatus;
+  nominee_name?: string | null;
   nominee_verification_status: VerificationStatus;
   remarks?: string | null;
 };

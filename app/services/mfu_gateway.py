@@ -28,6 +28,7 @@ TEMPLATE_COLUMNS = (
     "MobileStatus",
     "Email",
     "EmailStatus",
+    "Nominee",
     "NomineeStatus",
     "BankName",
     "AccountNumber",
@@ -38,7 +39,9 @@ TEMPLATE_COLUMNS = (
     "Remarks",
 )
 
-REQUIRED_TEMPLATE_COLUMNS = frozenset(column for column in TEMPLATE_COLUMNS if column != "FamilyCode")
+REQUIRED_TEMPLATE_COLUMNS = frozenset(
+    column for column in TEMPLATE_COLUMNS if column not in {"FamilyCode", "Nominee"}
+)
 
 
 class TemplateParseError(ValueError):

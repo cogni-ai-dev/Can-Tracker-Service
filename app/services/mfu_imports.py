@@ -70,6 +70,8 @@ HEADER_TO_FIELD = {
     "MemberName": "member_name",
     "CANNumber": "can_number",
     "PAN": "pan",
+    "Nominee": "nominee_name",
+    "NomineeName": "nominee_name",
     "DateOfBirth": "date_of_birth",
     "KYCStatus": "kyc_status",
     "Mobile": "mobile",
@@ -120,6 +122,7 @@ MEMBER_MFU_FIELDS = (
     "email",
     "email_verification_status",
     "nominee_verification_status",
+    "nominee_name",
     "bank_name",
     "bank_account_number",
     "ifsc_code",
@@ -403,6 +406,9 @@ def _validate_record(db: Session, record: MfuMemberRecord) -> VerifiedTemplateRo
         errors.append("BankName: value is required when bank account data is present.")
     if has_bank_data and not bank_account_number:
         errors.append("AccountNumber: value is required when bank account data is present.")
+    nominee_name = _optional_text(record, "Nominee")
+    if nominee_name is None:
+        nominee_name = _optional_text(record, "NomineeName")
 
     normalized_data = {
         "family_code": family_code,
@@ -421,6 +427,7 @@ def _validate_record(db: Session, record: MfuMemberRecord) -> VerifiedTemplateRo
         "mobile_verification_status": mobile_verification_status,
         "email": _normalize_optional(record, "Email", normalize_email, errors),
         "email_verification_status": email_verification_status,
+        "nominee_name": nominee_name,
         "nominee_verification_status": nominee_verification_status,
         "bank_name": bank_name,
         "bank_account_number": bank_account_number,
@@ -768,6 +775,8 @@ def _apply_import_member_data(
     member.mobile_verification_status = data["mobile_verification_status"]
     _set_member_protected_field_from_stored(member, "email", stored_data)
     member.email_verification_status = data["email_verification_status"]
+    if is_new or data.get("nominee_name") is not None:
+        member.nominee_name = data.get("nominee_name")
     member.nominee_verification_status = data["nominee_verification_status"]
     if is_new or data.get("remarks"):
         member.remarks = data.get("remarks")

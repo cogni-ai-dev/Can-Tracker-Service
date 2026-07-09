@@ -199,6 +199,34 @@ async def test_admin_can_crud_family_and_member_with_masked_pii_and_audit(
 
 
 @pytest.mark.asyncio
+async def test_member_crud_includes_nominee_name(
+    test_settings: Settings,
+    db_engine,
+    db_session: Session,
+) -> None:
+    admin = create_test_user(db_session, email="admin@example.test", role=UserRole.ADMIN)
+
+    async with client_for(test_settings) as client:
+        assert (await login(client, admin.email)).status_code == 200
+        family = await create_family(client, rm_id=create_test_user(db_session, email="rm@example.test", role=UserRole.RM).id)
+        created = await create_member(
+            client,
+            family_id=family["id"],
+            nominee_name="Aarav Sharma",
+            remarks="Has nominee",
+        )
+
+        updated = await client.patch(
+            f"/api/v1/members/{created['id']}",
+            json={"nominee_name": "Meera Sharma"},
+        )
+
+    assert created["nominee_name"] == "Aarav Sharma"
+    assert updated.status_code == 200
+    assert updated.json()["nominee_name"] == "Meera Sharma"
+
+
+@pytest.mark.asyncio
 async def test_management_cannot_write_and_rm_is_scoped_to_assigned_records(
     test_settings: Settings,
     db_engine,
@@ -570,6 +598,7 @@ async def test_search_and_filters_cover_family_member_rm_and_status_fields(
             family_id=alpha["id"],
             name="Alice Alpha",
             can_number="CAN-ALPHA",
+            nominee_name="Nominee One",
             pan="ABCDE1234F",
             kyc_status="Not Started",
             mobile_verification_status="Pending Verification",
@@ -600,6 +629,7 @@ async def test_search_and_filters_cover_family_member_rm_and_status_fields(
 
         member_by_family = await client.get(f"/api/v1/members?family_id={alpha['id']}")
         member_by_search_pan = await client.get("/api/v1/members?q=XYZAB9876C")
+        member_by_nominee = await client.get("/api/v1/members?q=Nominee One")
         member_mobile_pending = await client.get("/api/v1/members?mobile_verification_status=Pending%20Verification")
         member_rm = await client.get(f"/api/v1/members?rm_id={rm_two.id}")
 
@@ -612,6 +642,7 @@ async def test_search_and_filters_cover_family_member_rm_and_status_fields(
     assert [item["family_code"] for item in family_rm.json()["items"]] == ["FAM-BETA"]
     assert [item["can_number"] for item in member_by_family.json()["items"]] == ["CAN-ALPHA"]
     assert [item["can_number"] for item in member_by_search_pan.json()["items"]] == ["CAN-BETA"]
+    assert [item["can_number"] for item in member_by_nominee.json()["items"]] == ["CAN-ALPHA"]
     assert [item["can_number"] for item in member_mobile_pending.json()["items"]] == ["CAN-ALPHA"]
     assert [item["can_number"] for item in member_rm.json()["items"]] == ["CAN-BETA"]
 

@@ -55,6 +55,7 @@ def member_filter_conditions(
                 Member.pan_search_hash == pan_search_hash(term, settings),
                 Member.mobile_search_hash == mobile_search_hash(term, settings),
                 Member.email_search_hash == email_search_hash(term, settings),
+                Member.nominee_name.ilike(like),
             )
         )
     if can_status is not None:

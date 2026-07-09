@@ -91,6 +91,7 @@ class MemberCreate(BaseModel):
     email: str | None = Field(default=None, max_length=320)
     email_verification_status: VerificationStatus
     nominee_verification_status: VerificationStatus
+    nominee_name: str | None = Field(default=None, max_length=200)
     remarks: str | None = Field(default=None, max_length=5000)
 
     @field_validator("name")
@@ -128,6 +129,11 @@ class MemberCreate(BaseModel):
     def validate_optional_text(cls, value: str | None) -> str | None:
         return optional_stripped(value)
 
+    @field_validator("nominee_name")
+    @classmethod
+    def validate_nominee_name(cls, value: str | None) -> str | None:
+        return optional_stripped(value)
+
     @model_validator(mode="after")
     def default_can_status(self) -> "MemberCreate":
         expected_status = CanStatus.AVAILABLE if self.can_number is not None else CanStatus.PENDING
@@ -150,6 +156,7 @@ class MemberUpdate(BaseModel):
     email: str | None = Field(default=None, max_length=320)
     email_verification_status: VerificationStatus | None = None
     nominee_verification_status: VerificationStatus | None = None
+    nominee_name: str | None = Field(default=None, max_length=200)
     remarks: str | None = Field(default=None, max_length=5000)
 
     @field_validator("name")
@@ -185,6 +192,11 @@ class MemberUpdate(BaseModel):
     @field_validator("remarks")
     @classmethod
     def validate_optional_text(cls, value: str | None) -> str | None:
+        return optional_stripped(value)
+
+    @field_validator("nominee_name")
+    @classmethod
+    def validate_nominee_name(cls, value: str | None) -> str | None:
         return optional_stripped(value)
 
     @model_validator(mode="after")
@@ -316,6 +328,7 @@ class MemberRead(BaseModel):
     email_masked: str | None = None
     email: str | None = None
     email_verification_status: VerificationStatus
+    nominee_name: str | None = None
     nominee_verification_status: VerificationStatus
     bank_accounts: list[MemberBankAccountRead] = Field(default_factory=list)
     primary_bank_account: MemberBankAccountRead | None = None

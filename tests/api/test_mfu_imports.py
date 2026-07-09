@@ -181,7 +181,11 @@ async def test_upload_accepts_valid_csv_and_masks_preview_pii(
 
     async with client_for(test_settings) as client:
         assert (await login(client, admin.email)).status_code == 200
-        upload = await upload_file(client, "valid.csv", csv_template_bytes([template_row()]))
+        upload = await upload_file(
+            client,
+            "valid.csv",
+            csv_template_bytes([template_row(Nominee="Initial Nominee")]),
+        )
         batch = upload.json()
         rows = await client.get(f"/api/v1/imports/{batch['id']}/rows")
         list_response = await client.get("/api/v1/imports")
@@ -195,12 +199,60 @@ async def test_upload_accepts_valid_csv_and_masks_preview_pii(
     assert list_response.json()["total"] == 1
     assert detail_response.json()["id"] == batch["id"]
     row = rows.json()["items"][0]
+    assert row["normalized_data"]["nominee_name"] == "Initial Nominee"
     assert row["status"] == "valid"
     assert row["raw_data"]["PAN"] == "ABCDE****F"
     assert row["normalized_data"]["pan"] == "ABCDE****F"
     assert "ABCDE1234F" not in str(row)
     assert "9876543210" not in str(row)
     assert "001122334455" not in str(row)
+
+
+@pytest.mark.asyncio
+async def test_upload_accepts_nominee_name_aliases_and_commits_nominee(
+    test_settings: Settings,
+    db_engine,
+    db_session: Session,
+) -> None:
+    admin = create_test_user(db_session, email="admin@example.test", role=UserRole.ADMIN)
+    create_test_user(db_session, email="rm@example.test", role=UserRole.RM, name="RM One")
+
+    async with client_for(test_settings) as client:
+        assert (await login(client, admin.email)).status_code == 200
+        upload = await upload_file(
+            client,
+            "nominee-alias.csv",
+            csv_template_bytes(
+                [
+                template_row(
+                    FamilyCode="FAM-NOM-ALIAS",
+                    CANNumber="CAN-NOM-ALIAS",
+                    Nominee="Alias Nominee",
+                    NomineeName="",
+                ),
+                template_row(
+                    FamilyCode="FAM-NOM-ALIAS-2",
+                    CANNumber="CAN-NOM-ALIAS-2",
+                    NomineeStatus="Verified",
+                    NomineeName="Name Alt",
+                ),
+                ],
+                headers=TEMPLATE_COLUMNS + ("NomineeName",),
+            ),
+        )
+        batch = upload.json()
+        rows = await client.get(f"/api/v1/imports/{batch['id']}/rows")
+        commit = await client.post(f"/api/v1/imports/{batch['id']}/commit")
+
+    assert upload.status_code == 201, upload.text
+    items = rows.json()["items"]
+    assert len(items) == 2
+    assert [item["normalized_data"]["nominee_name"] for item in items] == ["Alias Nominee", "Name Alt"]
+    assert commit.status_code == 200, commit.text
+
+    db_session.expire_all()
+    assert db_session.scalar(select(Member).where(Member.can_number == "CAN-NOM-ALIAS")).nominee_name == "Alias Nominee"
+    assert db_session.scalar(select(Member).where(Member.can_number == "CAN-NOM-ALIAS-2")).nominee_name == "Name Alt"
 
 
 @pytest.mark.asyncio
@@ -275,6 +327,7 @@ async def test_upload_treats_na_optional_cells_as_blank_values(
         FamilyHeadName="NA Optional Head",
         PrimaryRMEmail="NA",
         PrimaryRMName="NA",
+        Nominee="NA",
         FamilyRemarks="NA",
         MemberName="NA Optional Member",
         CANNumber="NA",
@@ -305,6 +358,7 @@ async def test_upload_treats_na_optional_cells_as_blank_values(
     assert normalized["family_remarks"] is None
     assert normalized["can_number"] is None
     assert normalized["pan"] is None
+    assert normalized["nominee_name"] is None
     assert normalized["date_of_birth"] is None
     assert normalized["mobile"] is None
     assert normalized["email"] is None

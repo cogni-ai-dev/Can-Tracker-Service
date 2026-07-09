@@ -714,6 +714,7 @@ function FamilyDetailPage({
                 <th className="px-3 py-2">Mobile</th>
                 <th className="px-3 py-2">Email</th>
                 <th className="px-3 py-2">Nominee</th>
+                <th className="px-3 py-2">Nominee Name</th>
                 <th className="px-3 py-2">PayEezz</th>
                 <th className="px-3 py-2">Bank</th>
                 <th className="px-3 py-2">Updated</th>
@@ -730,6 +731,7 @@ function FamilyDetailPage({
                   <td className="px-3 py-3"><StatusBadge value={member.mobile_verification_status} /></td>
                   <td className="px-3 py-3"><StatusBadge value={member.email_verification_status} /></td>
                   <td className="px-3 py-3"><StatusBadge value={member.nominee_verification_status} /></td>
+                  <td className="px-3 py-3">{member.nominee_name || '-'}</td>
                   <td className="px-3 py-3"><StatusBadge value={member.effective_payeezz_mandate_status} /></td>
                   <td className="px-3 py-3">
                     <BankAccountList
@@ -766,7 +768,7 @@ function FamilyDetailPage({
                 </tr>
               ))}
               {!family.members.length && (
-                <tr><td className="px-3 py-8 text-center text-slate-500" colSpan={11}>No members yet. Add a member to get started.</td></tr>
+                <tr><td className="px-3 py-8 text-center text-slate-500" colSpan={12}>No members yet. Add a member to get started.</td></tr>
               )}
             </tbody>
           </table>
@@ -847,6 +849,7 @@ function MemberDetailDialog({
             <DetailItem label="CAN" value={displayCan(member)} />
             <DetailItem label="PAN" value={displaySensitive(member.pan_masked, member.pan)} />
             <DetailItem label="Date of Birth" value={formatDate(member.date_of_birth)} />
+            <DetailItem label="Nominee Name" value={member.nominee_name || '-'} />
             <DetailItem label="Mobile" value={displaySensitive(member.mobile_masked, member.mobile)} />
             <DetailItem label="Email" value={displaySensitive(member.email_masked, member.email)} />
             <DetailItem label="RM" value={displayRm(member.primary_rm)} />
@@ -1343,6 +1346,7 @@ function MemberModal({
     mobile_verification_status: member?.mobile_verification_status || 'Pending Verification',
     email: '',
     email_verification_status: member?.email_verification_status || 'Pending Verification',
+    nominee_name: member?.nominee_name || '',
     nominee_verification_status: member?.nominee_verification_status || 'Pending Verification',
     remarks: member?.remarks || '',
   });
@@ -1362,6 +1366,7 @@ function MemberModal({
       can_status: (canNumber ? 'Available' : 'Pending') as CanStatus,
       date_of_birth: form.date_of_birth || null,
       kyc_status: form.kyc_status,
+      nominee_name: form.nominee_name?.trim() || null,
       mobile_verification_status: form.mobile_verification_status,
       email_verification_status: form.email_verification_status,
       nominee_verification_status: form.nominee_verification_status,
@@ -1426,6 +1431,9 @@ function MemberModal({
             <select value={form.mobile_verification_status} disabled={remarksOnly} onChange={(event) => update('mobile_verification_status', event.target.value as VerificationStatus)} className={inputClass}>
               {verificationStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
             </select>
+          </Field>
+          <Field label="Nominee Name">
+            <input value={form.nominee_name || ''} onChange={(event) => update('nominee_name', event.target.value)} className={inputClass} />
           </Field>
           <Field label="Email">
             <input value={form.email || ''} disabled={remarksOnly} onChange={(event) => update('email', event.target.value)} placeholder={member?.email_masked ? `Stored: ${member.email_masked}` : 'client@example.com'} className={inputClass} />
@@ -1735,6 +1743,7 @@ function MembersTable({
         <thead className="bg-slate-50 text-xs uppercase text-slate-500">
           <tr>
             <th className="px-3 py-2">Name</th>
+            <th className="px-3 py-2">Nominee Name</th>
             {columns.includes('family') && <th className="px-3 py-2">Family</th>}
             {columns.includes('can') && <th className="px-3 py-2">CAN</th>}
             {columns.includes('pan') && <th className="px-3 py-2">PAN</th>}
@@ -1755,6 +1764,7 @@ function MembersTable({
           {members.map((member) => (
             <tr key={member.id}>
               <td className="px-3 py-3 font-semibold text-slate-900">{member.name}</td>
+              <td className="px-3 py-3">{member.nominee_name || '-'}</td>
               {columns.includes('family') && <td className="px-3 py-3">{member.family_head_name}</td>}
               {columns.includes('can') && <td className="px-3 py-3">{displayCan(member)}</td>}
               {columns.includes('pan') && <td className="px-3 py-3">{member.pan_masked || '-'}</td>}

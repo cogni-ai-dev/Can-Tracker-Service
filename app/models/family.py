@@ -86,6 +86,7 @@ class Member(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Index("ix_members_mobile_verification_status", "mobile_verification_status"),
         Index("ix_members_email_verification_status", "email_verification_status"),
         Index("ix_members_nominee_verification_status", "nominee_verification_status"),
+        Index("ix_members_nominee_name", "nominee_name"),
         Index("ix_members_pan_search_hash", "pan_search_hash"),
         Index("ix_members_mobile_search_hash", "mobile_search_hash"),
         Index("ix_members_email_search_hash", "email_search_hash"),
@@ -111,6 +112,7 @@ class Member(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     email_masked: Mapped[str | None] = mapped_column(String(320), nullable=True)
     email_search_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     email_verification_status: Mapped[VerificationStatus] = mapped_column(String(32), nullable=False)
+    nominee_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     nominee_verification_status: Mapped[VerificationStatus] = mapped_column(String(32), nullable=False)
 
     remarks: Mapped[str | None] = mapped_column(Text(), nullable=True)
