@@ -38,7 +38,7 @@ TEMPLATE_COLUMNS = (
     "Remarks",
 )
 
-REQUIRED_TEMPLATE_COLUMNS = frozenset(TEMPLATE_COLUMNS)
+REQUIRED_TEMPLATE_COLUMNS = frozenset(column for column in TEMPLATE_COLUMNS if column != "FamilyCode")
 
 
 class TemplateParseError(ValueError):
@@ -72,7 +72,7 @@ class TemplateMfuGateway:
     @classmethod
     def from_file(cls, file_name: str, content: bytes) -> TemplateMfuGateway:
         headers, records = parse_template_file(file_name, content)
-        extra_headers = [header for header in headers if header and header not in REQUIRED_TEMPLATE_COLUMNS]
+        extra_headers = [header for header in headers if header and header not in TEMPLATE_COLUMNS]
         warnings = []
         if extra_headers:
             warnings.append(f"Extra columns ignored: {', '.join(extra_headers)}")

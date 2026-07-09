@@ -1,6 +1,7 @@
 import unittest
 
 from app.domain.enums import (
+    CanStatus,
     ChangeSource,
     KycStatus,
     ModuleCode,
@@ -15,16 +16,19 @@ from app.domain.enums import (
 
 
 class EnumLabelTests(unittest.TestCase):
+    def test_can_status_labels_are_canonical(self) -> None:
+        self.assertEqual(CanStatus.values(), ("Pending", "Available"))
+
     def test_kyc_status_labels_are_canonical(self) -> None:
-        self.assertEqual(KycStatus.values(), ("Validated", "Registered", "No KYC"))
+        self.assertEqual(KycStatus.values(), ("Not Started", "Pending Re-KYC", "Verified"))
 
     def test_verification_status_labels_are_canonical(self) -> None:
-        self.assertEqual(VerificationStatus.values(), ("Verified", "Not Verified"))
+        self.assertEqual(VerificationStatus.values(), ("Pending Verification", "Verified"))
 
-    def test_payeezz_status_labels_are_canonical(self) -> None:
+    def test_payeezz_mandate_status_labels_are_canonical(self) -> None:
         self.assertEqual(
             PayeezzStatus.values(),
-            ("Not Available", "Sent for Approval", "Aggregator Accepted"),
+            ("Not Started", "Pending Approval", "Approved"),
         )
 
     def test_task_type_labels_are_canonical(self) -> None:

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.config import Settings
 from app.core.pii import email_search_hash, mobile_search_hash, pan_search_hash
 from app.domain.access import user_is_can_rm
-from app.domain.enums import KycStatus, PayeezzStatus, VerificationStatus
+from app.domain.enums import CanStatus, KycStatus, PayeezzStatus, VerificationStatus
 from app.models.family import Family, Member
 from app.models.user import User
 
@@ -63,18 +63,18 @@ def _status_filter(status_filter: str | None) -> object | None:
     if status_filter in (None, "all"):
         return None
     if status_filter == "kyc_pending":
-        return active_member_exists(Member.kyc_status.in_([KycStatus.REGISTERED.value, KycStatus.NO_KYC.value]))
+        return active_member_exists(Member.kyc_status.in_([KycStatus.PENDING_REKYC.value, KycStatus.NOT_STARTED.value]))
     if status_filter == "payeezz_pending":
-        return active_member_exists(Member.payeezz_status != PayeezzStatus.AGGREGATOR_ACCEPTED.value)
+        return active_member_exists(Member.payeezz_mandate_status != PayeezzStatus.APPROVED.value)
     if status_filter == "contact_pending":
         return active_member_exists(
             or_(
-                Member.mobile_status == VerificationStatus.NOT_VERIFIED.value,
-                Member.email_status == VerificationStatus.NOT_VERIFIED.value,
+                Member.mobile_verification_status == VerificationStatus.PENDING_VERIFICATION.value,
+                Member.email_verification_status == VerificationStatus.PENDING_VERIFICATION.value,
             )
         )
     if status_filter == "nominee_pending":
-        return active_member_exists(Member.nominee_status == VerificationStatus.NOT_VERIFIED.value)
+        return active_member_exists(Member.nominee_verification_status == VerificationStatus.PENDING_VERIFICATION.value)
     return None
 
 
@@ -85,11 +85,12 @@ def family_filter_conditions(
     q: str | None = None,
     rm_id: UUID | None = None,
     status_filter: str | None = None,
+    can_status: CanStatus | str | None = None,
     kyc_status: KycStatus | str | None = None,
-    payeezz_status: PayeezzStatus | str | None = None,
-    mobile_status: VerificationStatus | str | None = None,
-    email_status: VerificationStatus | str | None = None,
-    nominee_status: VerificationStatus | str | None = None,
+    payeezz_mandate_status: PayeezzStatus | str | None = None,
+    mobile_verification_status: VerificationStatus | str | None = None,
+    email_verification_status: VerificationStatus | str | None = None,
+    nominee_verification_status: VerificationStatus | str | None = None,
 ) -> list[object]:
     filters = active_family_filters(user)
     if rm_id is not None:
@@ -100,16 +101,18 @@ def family_filter_conditions(
     pending_filter = _status_filter(status_filter)
     if pending_filter is not None:
         filters.append(pending_filter)
+    if can_status is not None:
+        filters.append(active_member_exists(Member.can_status == _status_value(can_status)))
     if kyc_status is not None:
         filters.append(active_member_exists(Member.kyc_status == _status_value(kyc_status)))
-    if payeezz_status is not None:
-        filters.append(active_member_exists(Member.payeezz_status == _status_value(payeezz_status)))
-    if mobile_status is not None:
-        filters.append(active_member_exists(Member.mobile_status == _status_value(mobile_status)))
-    if email_status is not None:
-        filters.append(active_member_exists(Member.email_status == _status_value(email_status)))
-    if nominee_status is not None:
-        filters.append(active_member_exists(Member.nominee_status == _status_value(nominee_status)))
+    if payeezz_mandate_status is not None:
+        filters.append(active_member_exists(Member.payeezz_mandate_status == _status_value(payeezz_mandate_status)))
+    if mobile_verification_status is not None:
+        filters.append(active_member_exists(Member.mobile_verification_status == _status_value(mobile_verification_status)))
+    if email_verification_status is not None:
+        filters.append(active_member_exists(Member.email_verification_status == _status_value(email_verification_status)))
+    if nominee_verification_status is not None:
+        filters.append(active_member_exists(Member.nominee_verification_status == _status_value(nominee_verification_status)))
     return filters
 
 
@@ -131,11 +134,12 @@ def list_families(
     q: str | None = None,
     rm_id: UUID | None = None,
     status_filter: str | None = "all",
+    can_status: CanStatus | str | None = None,
     kyc_status: KycStatus | str | None = None,
-    payeezz_status: PayeezzStatus | str | None = None,
-    mobile_status: VerificationStatus | str | None = None,
-    email_status: VerificationStatus | str | None = None,
-    nominee_status: VerificationStatus | str | None = None,
+    payeezz_mandate_status: PayeezzStatus | str | None = None,
+    mobile_verification_status: VerificationStatus | str | None = None,
+    email_verification_status: VerificationStatus | str | None = None,
+    nominee_verification_status: VerificationStatus | str | None = None,
     limit: int = 50,
     offset: int = 0,
     sort: str = "family_head_name",
@@ -146,11 +150,12 @@ def list_families(
         q=q,
         rm_id=rm_id,
         status_filter=status_filter,
+        can_status=can_status,
         kyc_status=kyc_status,
-        payeezz_status=payeezz_status,
-        mobile_status=mobile_status,
-        email_status=email_status,
-        nominee_status=nominee_status,
+        payeezz_mandate_status=payeezz_mandate_status,
+        mobile_verification_status=mobile_verification_status,
+        email_verification_status=email_verification_status,
+        nominee_verification_status=nominee_verification_status,
     )
     total = db.scalar(select(func.count(Family.id)).where(*filters)) or 0
     items = list(
@@ -179,14 +184,40 @@ def get_active_family(db: Session, family_id: UUID, user: User) -> Family | None
 
 def find_active_family_by_code(
     db: Session,
-    family_code: str,
+    family_code: str | None,
     *,
     exclude_family_id: UUID | None = None,
 ) -> Family | None:
+    if family_code is None:
+        return None
     filters = [Family.family_code == family_code, Family.deleted_at.is_(None)]
     if exclude_family_id is not None:
         filters.append(Family.id != exclude_family_id)
     return db.scalar(select(Family).where(*filters))
+
+
+def find_active_families_by_head_and_rm(
+    db: Session,
+    *,
+    family_head_name: str,
+    primary_rm_id: UUID | None,
+) -> list[Family]:
+    rm_filter = Family.primary_rm_id.is_(None) if primary_rm_id is None else Family.primary_rm_id == primary_rm_id
+    return list(
+        db.scalars(
+            select(Family)
+            .where(
+                func.lower(Family.family_head_name) == family_head_name.strip().lower(),
+                rm_filter,
+                Family.deleted_at.is_(None),
+            )
+            .order_by(Family.created_at, Family.id)
+        )
+    )
+
+
+def list_family_codes_with_prefix(db: Session, prefix: str) -> list[str]:
+    return list(db.scalars(select(Family.family_code).where(Family.family_code.like(f"{prefix}%"))))
 
 
 def active_family_statement_for_update(user: User) -> Select[tuple[Family]]:

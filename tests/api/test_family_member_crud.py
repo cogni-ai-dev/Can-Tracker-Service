@@ -53,16 +53,16 @@ def member_payload(**overrides: object) -> dict[str, object]:
         "can_number": "CAN-001",
         "pan": "ABCDE1234F",
         "date_of_birth": "1990-01-01",
-        "kyc_status": "Validated",
+        "kyc_status": "Verified",
         "mobile": "9876543210",
-        "mobile_status": "Verified",
+        "mobile_verification_status": "Verified",
         "email": "client.one@example.test",
-        "email_status": "Verified",
-        "nominee_status": "Verified",
+        "email_verification_status": "Verified",
+        "nominee_verification_status": "Verified",
         "bank_name": "HDFC Bank",
         "bank_account_number": "001122334455",
         "ifsc_code": "HDFC0123456",
-        "payeezz_status": "Aggregator Accepted",
+        "payeezz_mandate_status": "Approved",
         "payeezz_amount": "1000.00",
         "payeezz_start_date": "2026-01-01",
         "remarks": "Initial record",
@@ -133,7 +133,7 @@ async def test_admin_can_crud_family_and_member_with_masked_pii_and_audit(
             f"/api/v1/members/{member['id']}",
             json={
                 "pan": "XYZAB9876C",
-                "mobile_status": "Not Verified",
+                "mobile_verification_status": "Pending Verification",
                 "remarks": "Updated by ops",
             },
             headers={"x-request-id": "req-member-update"},
@@ -160,7 +160,7 @@ async def test_admin_can_crud_family_and_member_with_masked_pii_and_audit(
     )
     assert {(row.action, row.field_name) for row in audit_rows} >= {
         (AuditAction.CREATE, None),
-        (AuditAction.UPDATE, "mobile_status"),
+        (AuditAction.UPDATE, "mobile_verification_status"),
         (AuditAction.UPDATE, "pan"),
         (AuditAction.UPDATE, "remarks"),
     }
@@ -239,6 +239,49 @@ async def test_management_cannot_write_and_rm_is_scoped_to_assigned_records(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("role", [UserRole.OPS, UserRole.RM, UserRole.MANAGEMENT])
+async def test_family_and_member_delete_are_admin_only(
+    role: UserRole,
+    test_settings: Settings,
+    db_engine,
+    db_session: Session,
+) -> None:
+    admin = create_test_user(db_session, email="admin@example.test", role=UserRole.ADMIN)
+    blocked_user = create_test_user(db_session, email=f"{role.value}@example.test", role=role)
+    rm = blocked_user if role == UserRole.RM else create_test_user(db_session, email="rm@example.test", role=UserRole.RM)
+
+    async with client_for(test_settings) as admin_client:
+        assert (await login(admin_client, admin.email)).status_code == 200
+        family = await create_family(
+            admin_client,
+            rm_id=rm.id,
+            family_code=f"FAM-DELETE-{role.value.upper()}",
+            family_head_name=f"{role.value.title()} Delete Head",
+        )
+        member = await create_member(
+            admin_client,
+            family_id=family["id"],
+            can_number=f"CAN-DELETE-{role.value.upper()}",
+        )
+
+    async with client_for(test_settings) as blocked_client:
+        assert (await login(blocked_client, blocked_user.email)).status_code == 200
+        member_delete = await blocked_client.delete(f"/api/v1/members/{member['id']}")
+        family_delete = await blocked_client.delete(f"/api/v1/families/{family['id']}")
+
+    assert member_delete.status_code == 403
+    assert member_delete.json()["error"]["code"] == "forbidden"
+    assert family_delete.status_code == 403
+    assert family_delete.json()["error"]["code"] == "forbidden"
+
+    db_session.expire_all()
+    stored_family = db_session.get(Family, UUID(family["id"]))
+    stored_member = db_session.get(Member, UUID(member["id"]))
+    assert stored_family is not None and stored_family.deleted_at is None
+    assert stored_member is not None and stored_member.deleted_at is None
+
+
+@pytest.mark.asyncio
 async def test_validation_and_active_uniqueness_for_families_and_members(
     test_settings: Settings,
     db_engine,
@@ -297,6 +340,139 @@ async def test_validation_and_active_uniqueness_for_families_and_members(
 
 
 @pytest.mark.asyncio
+async def test_family_create_generates_date_stamped_code_and_does_not_reuse_soft_deleted_codes(
+    test_settings: Settings,
+    db_engine,
+    db_session: Session,
+) -> None:
+    admin = create_test_user(db_session, email="admin@example.test", role=UserRole.ADMIN)
+    rm = create_test_user(db_session, email="rm@example.test", role=UserRole.RM)
+
+    async with client_for(test_settings) as client:
+        assert (await login(client, admin.email)).status_code == 200
+        first = await client.post(
+            "/api/v1/families",
+            json={"family_head_name": "Generated One", "primary_rm_id": str(rm.id)},
+        )
+        second = await client.post(
+            "/api/v1/families",
+            json={"family_head_name": "Generated Two", "primary_rm_id": str(rm.id)},
+        )
+        assert first.status_code == 201, first.text
+        assert second.status_code == 201, second.text
+        assert first.json()["family_code"].startswith("FAM-")
+        assert first.json()["family_code"].endswith("-0001")
+        assert second.json()["family_code"].endswith("-0002")
+
+        assert (await client.delete(f"/api/v1/families/{first.json()['id']}")).status_code == 204
+        third = await client.post(
+            "/api/v1/families",
+            json={"family_head_name": "Generated Three", "primary_rm_id": str(rm.id)},
+        )
+
+    assert third.status_code == 201, third.text
+    assert third.json()["family_code"].endswith("-0003")
+
+
+@pytest.mark.asyncio
+async def test_family_can_be_created_assigned_and_cleared_without_rm(
+    test_settings: Settings,
+    db_engine,
+    db_session: Session,
+) -> None:
+    admin = create_test_user(db_session, email="admin@example.test", role=UserRole.ADMIN)
+    rm = create_test_user(db_session, email="rm@example.test", role=UserRole.RM)
+
+    async with client_for(test_settings) as client:
+        assert (await login(client, admin.email)).status_code == 200
+        create_response = await client.post(
+            "/api/v1/families",
+            json={"family_head_name": "Unassigned Head", "remarks": "Needs RM"},
+        )
+        family = create_response.json()
+        member = await create_member(client, family_id=family["id"], can_number="CAN-UNASSIGNED")
+        assign_response = await client.patch(f"/api/v1/families/{family['id']}", json={"primary_rm_id": str(rm.id)})
+        clear_response = await client.patch(f"/api/v1/families/{family['id']}", json={"primary_rm_id": None})
+        detail_response = await client.get(f"/api/v1/families/{family['id']}")
+
+    assert create_response.status_code == 201, create_response.text
+    assert family["primary_rm"] is None
+    assert member.get("primary_rm") is None
+    assert assign_response.status_code == 200, assign_response.text
+    assert assign_response.json()["primary_rm"]["id"] == str(rm.id)
+    assert clear_response.status_code == 200, clear_response.text
+    assert clear_response.json()["primary_rm"] is None
+    assert detail_response.json()["primary_rm"] is None
+
+    async with client_for(test_settings) as rm_client:
+        assert (await login(rm_client, rm.email)).status_code == 200
+        family_list = await rm_client.get("/api/v1/families")
+        family_detail = await rm_client.get(f"/api/v1/families/{family['id']}")
+        member_list = await rm_client.get("/api/v1/members")
+
+    assert family_list.status_code == 200
+    assert family_list.json()["total"] == 0
+    assert family_detail.status_code == 404
+    assert member_list.json()["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_members_can_be_pending_without_can_and_later_assigned(
+    test_settings: Settings,
+    db_engine,
+    db_session: Session,
+) -> None:
+    admin = create_test_user(db_session, email="admin@example.test", role=UserRole.ADMIN)
+    rm = create_test_user(db_session, email="rm@example.test", role=UserRole.RM)
+
+    async with client_for(test_settings) as client:
+        assert (await login(client, admin.email)).status_code == 200
+        family = await create_family(client, rm_id=rm.id, family_code="FAM-PENDING-CAN")
+        first_pending = await create_member(
+            client,
+            family_id=family["id"],
+            name="Pending One",
+            can_number=None,
+            pan="ABCDE1234F",
+        )
+        second_pending = await create_member(
+            client,
+            family_id=family["id"],
+            name="Pending Two",
+            can_number="",
+            pan="XYZAB9876C",
+        )
+        inconsistent_can_status = await client.patch(
+            f"/api/v1/members/{first_pending['id']}",
+            json={"can_number": None, "can_status": "Available"},
+        )
+        assigned = await client.patch(
+            f"/api/v1/members/{first_pending['id']}",
+            json={"can_number": "CAN-ASSIGNED"},
+        )
+        available_members = await client.get("/api/v1/members?can_status=Available")
+        cleared = await client.patch(
+            f"/api/v1/members/{first_pending['id']}",
+            json={"can_number": None},
+        )
+        pending_members = await client.get("/api/v1/members?can_status=Pending")
+
+    assert first_pending.get("can_number") is None
+    assert first_pending["can_status"] == "Pending"
+    assert second_pending.get("can_number") is None
+    assert second_pending["can_status"] == "Pending"
+    assert inconsistent_can_status.status_code == 422
+    assert assigned.status_code == 200
+    assert assigned.json()["can_number"] == "CAN-ASSIGNED"
+    assert assigned.json()["can_status"] == "Available"
+    assert [item["can_number"] for item in available_members.json()["items"]] == ["CAN-ASSIGNED"]
+    assert cleared.status_code == 200
+    assert cleared.json().get("can_number") is None
+    assert cleared.json()["can_status"] == "Pending"
+    assert {item["name"] for item in pending_members.json()["items"]} == {"Pending One", "Pending Two"}
+
+
+@pytest.mark.asyncio
 async def test_search_and_filters_cover_family_member_rm_and_status_fields(
     test_settings: Settings,
     db_engine,
@@ -316,11 +492,11 @@ async def test_search_and_filters_cover_family_member_rm_and_status_fields(
             name="Alice Alpha",
             can_number="CAN-ALPHA",
             pan="ABCDE1234F",
-            kyc_status="No KYC",
-            mobile_status="Not Verified",
-            email_status="Verified",
-            nominee_status="Not Verified",
-            payeezz_status="Not Available",
+            kyc_status="Not Started",
+            mobile_verification_status="Pending Verification",
+            email_verification_status="Verified",
+            nominee_verification_status="Pending Verification",
+            payeezz_mandate_status="Not Started",
         )
         await create_member(
             client,
@@ -328,11 +504,11 @@ async def test_search_and_filters_cover_family_member_rm_and_status_fields(
             name="Bob Beta",
             can_number="CAN-BETA",
             pan="XYZAB9876C",
-            kyc_status="Validated",
-            mobile_status="Verified",
-            email_status="Verified",
-            nominee_status="Verified",
-            payeezz_status="Aggregator Accepted",
+            kyc_status="Verified",
+            mobile_verification_status="Verified",
+            email_verification_status="Verified",
+            nominee_verification_status="Verified",
+            payeezz_mandate_status="Approved",
         )
 
         family_by_member = await client.get("/api/v1/families?q=Alice")
@@ -340,12 +516,12 @@ async def test_search_and_filters_cover_family_member_rm_and_status_fields(
         family_by_pan = await client.get("/api/v1/families?q=ABCDE1234F")
         family_kyc_pending = await client.get("/api/v1/families?status_filter=kyc_pending")
         family_nominee_pending = await client.get("/api/v1/families?status_filter=nominee_pending")
-        family_payeezz_done = await client.get("/api/v1/families?payeezz_status=Aggregator%20Accepted")
+        family_payeezz_done = await client.get("/api/v1/families?payeezz_mandate_status=Approved")
         family_rm = await client.get(f"/api/v1/families?rm_id={rm_two.id}")
 
         member_by_family = await client.get(f"/api/v1/members?family_id={alpha['id']}")
         member_by_search_pan = await client.get("/api/v1/members?q=XYZAB9876C")
-        member_mobile_pending = await client.get("/api/v1/members?mobile_status=Not%20Verified")
+        member_mobile_pending = await client.get("/api/v1/members?mobile_verification_status=Pending%20Verification")
         member_rm = await client.get(f"/api/v1/members?rm_id={rm_two.id}")
 
     assert [item["family_code"] for item in family_by_member.json()["items"]] == ["FAM-ALPHA"]

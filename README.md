@@ -76,40 +76,55 @@ npm run dev
 Vite serves the app on `http://127.0.0.1:3001` and proxies `/api` to the local
 FastAPI backend at `http://127.0.0.1:8001`.
 
-The new React app keeps Compliance wired to the existing backend APIs. Client
-CRM uses local/mock adapters in v1 and documents the future `/api/v1/crm/*`
-contracts in code. The standalone `can_tracker_dashboard.html` remains as a
-legacy transition shell while the React app becomes the primary frontend.
+The React app keeps Compliance wired to the existing backend APIs. Client CRM
+uses local/mock adapters in v1 and documents the future `/api/v1/crm/*`
+contracts in code. The old standalone `can_tracker_dashboard.html` is no longer
+part of the tracked frontend; local copies are ignored by git.
 
 ## Docker Compose
 
-Compose is split into PostgreSQL, API, and React frontend stacks. For local
-Compose, put runtime values in ignored override files instead of loading the
-root `.env` file.
+Use the tracked separate Compose files for fresh servers and normal local
+deploys. PostgreSQL, the API, and the React UI stay in separate Compose files;
+the API Compose file creates the shared `can-tracker-local` network, and the UI
+Compose file joins that network so it can proxy to
+`http://can-tracker-service:8002` without a local override file.
 
-Create local overrides, then replace every API secret placeholder:
+Provide runtime values with either a root `.env` file or local ignored override
+files.
+
+If you use `.env`, run from the repository root:
 
 ```bash
-cp docker/can-tracker-service/docker-compose.override.example.yml docker/can-tracker-service/docker-compose.override.yml
-cp docker/can-tracker-frontend/docker-compose.override.example.yml docker/can-tracker-frontend/docker-compose.override.yml
+cp .env.example .env
+docker compose -f docker/can-postgres/docker-compose.yml up -d
+docker compose -f docker/can-tracker-service/docker-compose.yml up -d --build
+docker compose -f docker/can-tracker-ui/docker-compose.yml up -d --build
 ```
 
-Start PostgreSQL, then the API, then the React frontend:
+If you put secrets in `docker-compose.override.yml`, run Compose from each
+service directory so the override file is auto-loaded:
 
 ```bash
 docker compose -f docker/can-postgres/docker-compose.yml up -d
 (cd docker/can-tracker-service && docker compose up -d --build)
-(cd docker/can-tracker-frontend && docker compose up -d --build)
+(cd docker/can-tracker-ui && docker compose up -d --build)
 ```
 
-Run API `stop`, `down`, `logs`, and `ps` from `docker/can-tracker-service/` so
-Compose automatically loads `docker-compose.override.yml`.
+For logs and status:
+
+```bash
+docker compose -f docker/can-postgres/docker-compose.yml ps
+docker compose -f docker/can-tracker-service/docker-compose.yml ps
+docker compose -f docker/can-tracker-ui/docker-compose.yml ps
+docker compose -f docker/can-tracker-service/docker-compose.yml logs --tail=100
+docker compose -f docker/can-tracker-ui/docker-compose.yml logs --tail=100
+```
 
 The frontend container serves the built React app and proxies `/api` to
-`${API_UPSTREAM:-http://host.docker.internal:8001}` so browser requests stay
+`${API_UPSTREAM:-http://can-tracker-service:8002}` so browser requests stay
 same-origin.
 
-For the legacy standalone HTML UI only, run:
+If you keep a local copy of the old standalone HTML UI, you can serve it with:
 
 ```bash
 uv run python scripts/serve_ui.py
@@ -117,9 +132,9 @@ uv run python scripts/serve_ui.py
 
 Compose publishes:
 
-- API default: `0.0.0.0:8001` in Docker, reachable locally at `http://127.0.0.1:8001`
-- React UI default: `0.0.0.0:3001` in Docker, reachable locally at `http://127.0.0.1:3001`
-- Legacy standalone UI: `http://127.0.0.1:8081`
+- API default: `0.0.0.0:8002` in Docker, reachable locally at `http://127.0.0.1:8002`
+- React UI default: `0.0.0.0:3002` in Docker, reachable locally at `http://127.0.0.1:3002`
+- Optional local standalone UI: `http://127.0.0.1:8081`
 - PostgreSQL: `127.0.0.1:5402`
 
 The API container runs `alembic upgrade head` before starting Uvicorn.

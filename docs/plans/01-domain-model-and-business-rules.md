@@ -62,10 +62,10 @@ Required member fields:
 - `name`: full member name.
 - `can_number`: required unique CAN string.
 - `kyc_status`: one of the KYC enum values.
-- `mobile_status`: one of the verification enum values.
-- `email_status`: one of the verification enum values.
-- `nominee_status`: one of the verification enum values.
-- `payeezz_status`: one of the PayEezz enum values.
+- `mobile_verification_status`: one of the verification enum values.
+- `email_verification_status`: one of the verification enum values.
+- `nominee_verification_status`: one of the verification enum values.
+- `payeezz_mandate_status`: one of the PayEezz enum values.
 - `created_at`, `updated_at`, `deleted_at`.
 
 Optional member fields:
@@ -85,49 +85,49 @@ Optional member fields:
 
 KYC status:
 
-- `Validated`
-- `Registered`
-- `No KYC`
+- `Verified`
+- `Pending Re-KYC`
+- `Not Started`
 
 Verification status:
 
 - `Verified`
-- `Not Verified`
+- `Pending Verification`
 
 PayEezz status:
 
-- `Not Available`
-- `Sent for Approval`
-- `Aggregator Accepted`
+- `Not Started`
+- `Pending Approval`
+- `Approved`
 
 ### Compliance Rules
 
 KYC:
 
-- `Validated` means compliant.
-- `Registered` means re-KYC pending.
-- `No KYC` means KYC pending.
-- KYC pending count = members where status is `Registered` or `No KYC`.
-- KYC completion percentage = `Validated / total_members * 100`.
+- `Verified` means compliant.
+- `Pending Re-KYC` means re-KYC pending.
+- `Not Started` means KYC pending.
+- KYC pending count = members where status is `Pending Re-KYC` or `Not Started`.
+- KYC completion percentage = `Verified / total_members * 100`.
 
 PayEezz:
 
-- `Aggregator Accepted` means completed.
-- `Sent for Approval` means in progress.
-- `Not Available` means pending initiation.
-- PayEezz pending count = `Not Available` plus `Sent for Approval`.
-- PayEezz completion percentage = `Aggregator Accepted / total_members * 100`.
+- `Approved` means completed.
+- `Pending Approval` means in progress.
+- `Not Started` means pending initiation.
+- PayEezz pending count = `Not Started` plus `Pending Approval`.
+- PayEezz completion percentage = `Approved / total_members * 100`.
 
 Contact:
 
-- Mobile completion percentage = members where `mobile_status = Verified`.
-- Email completion percentage = members where `email_status = Verified`.
-- Contact pending filter = members where mobile or email is `Not Verified`.
+- Mobile completion percentage = members where `mobile_verification_status = Verified`.
+- Email completion percentage = members where `email_verification_status = Verified`.
+- Contact pending filter = members where mobile or email is `Pending Verification`.
 
 Nominee:
 
-- Nominee completion percentage = members where `nominee_status = Verified`.
-- Nominee pending filter = members where nominee is `Not Verified`.
+- Nominee completion percentage = members where `nominee_verification_status = Verified`.
+- Nominee pending filter = members where nominee is `Pending Verification`.
 
 Percentage behavior:
 
@@ -141,19 +141,19 @@ Tasks are not stored in v1. They are generated from current member status fields
 
 Generate a `kyc` task:
 
-- If `kyc_status = No KYC`: priority `high`, label `No KYC`, description `KYC not done`.
-- If `kyc_status = Registered`: priority `medium`, label `Re-KYC`, description `Re-KYC pending`.
+- If `kyc_status = Not Started`: priority `high`, label `Not Started`, description `KYC not done`.
+- If `kyc_status = Pending Re-KYC`: priority `medium`, label `Re-KYC`, description `Re-KYC pending`.
 
 Generate a `payeezz` task:
 
-- If `payeezz_status = Not Available`: priority `high`, label `Not Setup`, description `PayEezz mandate not initiated`.
-- If `payeezz_status = Sent for Approval`: priority `medium`, label `Pending`, description `PayEezz sent, awaiting acceptance`.
+- If `payeezz_mandate_status = Not Started`: priority `high`, label `Not Setup`, description `PayEezz mandate not initiated`.
+- If `payeezz_mandate_status = Pending Approval`: priority `medium`, label `Pending`, description `PayEezz sent, awaiting acceptance`.
 
 Generate verification tasks:
 
-- If `mobile_status = Not Verified`: type `mobile`, priority `medium`, label `Unverified`, description `Mobile number not verified in MFU`.
-- If `email_status = Not Verified`: type `email`, priority `low`, label `Unverified`, description `Email address not verified in MFU`.
-- If `nominee_status = Not Verified`: type `nominee`, priority `medium`, label `Not Verified`, description `Nominee details not verified`.
+- If `mobile_verification_status = Pending Verification`: type `mobile`, priority `medium`, label `Unverified`, description `Mobile number not verified in MFU`.
+- If `email_verification_status = Pending Verification`: type `email`, priority `low`, label `Unverified`, description `Email address not verified in MFU`.
+- If `nominee_verification_status = Pending Verification`: type `nominee`, priority `medium`, label `Pending Verification`, description `Nominee details not verified`.
 
 Task response fields:
 
@@ -174,17 +174,17 @@ Task response fields:
 
 `kyc_pending`:
 
-- Include active members where `kyc_status != Validated`.
+- Include active members where `kyc_status != Verified`.
 - Columns: name, CAN, PAN masked, KYC status, family head, family code, RM, last updated.
 
 `payeezz_pending`:
 
-- Include active members where `payeezz_status != Aggregator Accepted`.
+- Include active members where `payeezz_mandate_status != Approved`.
 - Columns: name, CAN, PayEezz status, bank name, account masked, family head, family code, RM.
 
 `contact_pending`:
 
-- Include active members where mobile, email, or nominee status is `Not Verified`.
+- Include active members where mobile, email, or nominee status is `Pending Verification`.
 - Columns: name, CAN, mobile status, email status, nominee status, family head, family code, RM.
 
 `family_compliance`:

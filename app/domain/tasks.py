@@ -43,17 +43,17 @@ TASK_RULES: tuple[TaskRule, ...] = (
     TaskRule(
         status_field="kyc_status",
         frontend_field="kyc",
-        status_value=KycStatus.NO_KYC.value,
+        status_value=KycStatus.NOT_STARTED.value,
         type=TaskType.KYC,
         priority=TaskPriority.HIGH,
         description="KYC not done",
-        label="No KYC",
+        label="Not Started",
         order=10,
     ),
     TaskRule(
         status_field="kyc_status",
         frontend_field="kyc",
-        status_value=KycStatus.REGISTERED.value,
+        status_value=KycStatus.PENDING_REKYC.value,
         type=TaskType.KYC,
         priority=TaskPriority.MEDIUM,
         description="Re-KYC pending",
@@ -61,60 +61,62 @@ TASK_RULES: tuple[TaskRule, ...] = (
         order=10,
     ),
     TaskRule(
-        status_field="payeezz_status",
+        status_field="payeezz_mandate_status",
         frontend_field="payeezz",
-        status_value=PayeezzStatus.NOT_AVAILABLE.value,
+        status_value=PayeezzStatus.NOT_STARTED.value,
         type=TaskType.PAYEEZZ,
         priority=TaskPriority.HIGH,
         description="PayEezz mandate not initiated",
-        label="Not Setup",
+        label="Not Started",
         order=20,
     ),
     TaskRule(
-        status_field="payeezz_status",
+        status_field="payeezz_mandate_status",
         frontend_field="payeezz",
-        status_value=PayeezzStatus.SENT_FOR_APPROVAL.value,
+        status_value=PayeezzStatus.PENDING_APPROVAL.value,
         type=TaskType.PAYEEZZ,
         priority=TaskPriority.MEDIUM,
         description="PayEezz sent, awaiting acceptance",
-        label="Pending",
+        label="Pending Approval",
         order=20,
     ),
     TaskRule(
-        status_field="mobile_status",
+        status_field="mobile_verification_status",
         frontend_field="mobile",
-        status_value=VerificationStatus.NOT_VERIFIED.value,
+        status_value=VerificationStatus.PENDING_VERIFICATION.value,
         type=TaskType.MOBILE,
         priority=TaskPriority.MEDIUM,
         description="Mobile number not verified in MFU",
-        label="Unverified",
+        label="Pending Verification",
         order=30,
     ),
     TaskRule(
-        status_field="email_status",
+        status_field="email_verification_status",
         frontend_field="email",
-        status_value=VerificationStatus.NOT_VERIFIED.value,
+        status_value=VerificationStatus.PENDING_VERIFICATION.value,
         type=TaskType.EMAIL,
         priority=TaskPriority.LOW,
         description="Email address not verified in MFU",
-        label="Unverified",
+        label="Pending Verification",
         order=40,
     ),
     TaskRule(
-        status_field="nominee_status",
+        status_field="nominee_verification_status",
         frontend_field="nominee",
-        status_value=VerificationStatus.NOT_VERIFIED.value,
+        status_value=VerificationStatus.PENDING_VERIFICATION.value,
         type=TaskType.NOMINEE,
         priority=TaskPriority.MEDIUM,
         description="Nominee details not verified",
-        label="Not Verified",
+        label="Pending Verification",
         order=50,
     ),
 )
 
 
 def mask_can_number(can_number: Any) -> str:
-    value_text = "" if can_number is None else str(can_number)
+    if can_number is None:
+        return "Pending"
+    value_text = str(can_number)
     return value_text[-6:]
 
 
@@ -149,7 +151,15 @@ def _task_context(member: Any, family: Any | None) -> dict[str, Any]:
             "rm_name",
             "primary_rm_name",
             "rm",
-            default=value(family, "rm_name", "primary_rm_name", "rm", default="") if family is not None else "",
+            default=value(
+                family,
+                "rm_name",
+                "primary_rm_name",
+                "rm",
+                default="Unassigned",
+            )
+            if family is not None
+            else "Unassigned",
         ),
         "can_number_masked": mask_can_number(value(member, "can_number", "can", default="")),
     }

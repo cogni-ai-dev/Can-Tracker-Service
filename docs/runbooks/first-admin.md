@@ -13,11 +13,11 @@ export BOOTSTRAP_ADMIN_PASSWORD="<temporary-password>"
 ```
 
 ```bash
-docker compose --env-file .env -f docker/can-tracker-service/docker-compose.yml run --rm \
+docker compose -f docker/can-tracker-service/docker-compose.yml run --rm \
   -e BOOTSTRAP_ADMIN_NAME \
   -e BOOTSTRAP_ADMIN_EMAIL \
   -e BOOTSTRAP_ADMIN_PASSWORD \
-  api python -m app.cli.bootstrap_admin
+  can-tracker-service python -m app.cli.bootstrap_admin
 ```
 
 The password must be at least eight characters. Use a long random temporary password and rotate it after first login when a user-management flow is available.
@@ -25,7 +25,7 @@ The password must be at least eight characters. Use a long random temporary pass
 ## Verify
 
 ```bash
-curl -i -X POST http://127.0.0.1:8001/api/v1/auth/login \
+curl -i -X POST http://127.0.0.1:8002/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"<admin-email>","password":"<temporary-password>"}'
 ```

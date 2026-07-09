@@ -46,7 +46,8 @@ Only continue after checksum verification succeeds.
 Stop API writes:
 
 ```bash
-docker compose --env-file .env -f docker/can-tracker-service/docker-compose.yml stop api
+docker compose -f docker/can-tracker-ui/docker-compose.yml stop can-tracker-ui
+docker compose -f docker/can-tracker-service/docker-compose.yml stop can-tracker-service
 ```
 
 Create a clean target database and restore the dump:
@@ -60,15 +61,16 @@ docker compose -f docker/can-postgres/docker-compose.yml exec -T postgres sh -c 
   'pg_restore --single-transaction --no-owner --no-privileges --username "$POSTGRES_USER" --dbname "$POSTGRES_DB"' \
   < "$BACKUP_FILE"
 
-docker compose --env-file .env -f docker/can-tracker-service/docker-compose.yml run --rm api alembic upgrade head
-docker compose --env-file .env -f docker/can-tracker-service/docker-compose.yml up -d api
+docker compose -f docker/can-tracker-service/docker-compose.yml run --rm can-tracker-service alembic upgrade head
+docker compose -f docker/can-tracker-service/docker-compose.yml up -d can-tracker-service
+docker compose -f docker/can-tracker-ui/docker-compose.yml up -d can-tracker-ui
 ```
 
 ## Restore Acceptance Checks
 
 ```bash
-curl -fsS http://127.0.0.1:8001/health
-curl -fsS http://127.0.0.1:8001/ready
+curl -fsS http://127.0.0.1:8002/health
+curl -fsS http://127.0.0.1:8002/ready
 ```
 
 Then verify:

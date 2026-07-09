@@ -66,7 +66,7 @@ def template_row(**overrides: str) -> dict[str, str]:
         "CANNumber": "CAN-IMP-001",
         "PAN": "ABCDE1234F",
         "DateOfBirth": "1990-01-01",
-        "KYCStatus": "Validated",
+        "KYCStatus": "Verified",
         "Mobile": "9876543210",
         "MobileStatus": "Verified",
         "Email": "import.member@example.test",
@@ -75,7 +75,7 @@ def template_row(**overrides: str) -> dict[str, str]:
         "BankName": "HDFC Bank",
         "AccountNumber": "001122334455",
         "IFSC": "HDFC0123456",
-        "PayEezzStatus": "Aggregator Accepted",
+        "PayEezzStatus": "Approved",
         "PayEezzAmount": "1000.00",
         "PayEezzStartDate": "2026-01-01",
         "Remarks": "Imported member",
@@ -226,6 +226,330 @@ async def test_upload_accepts_valid_xlsx(
 
 
 @pytest.mark.asyncio
+async def test_upload_accepts_missing_family_code_header_and_commit_generates_family_code(
+    test_settings: Settings,
+    db_engine,
+    db_session: Session,
+) -> None:
+    admin = create_test_user(db_session, email="admin@example.test", role=UserRole.ADMIN)
+    rm = create_test_user(db_session, email="rm@example.test", role=UserRole.RM, name="RM One")
+    headers = tuple(header for header in TEMPLATE_COLUMNS if header != "FamilyCode")
+    row = template_row(
+        FamilyHeadName="Generated Import Head",
+        PrimaryRMEmail=rm.email,
+        CANNumber="CAN-GENERATED-IMPORT",
+    )
+
+    async with client_for(test_settings) as client:
+        assert (await login(client, admin.email)).status_code == 200
+        upload = await upload_file(client, "generated-family.csv", csv_template_bytes([row], headers=headers))
+        batch = upload.json()
+        rows = await client.get(f"/api/v1/imports/{batch['id']}/rows")
+        commit = await client.post(f"/api/v1/imports/{batch['id']}/commit")
+
+    assert upload.status_code == 201, upload.text
+    assert batch["status"] == "validated"
+    assert batch["valid_row_count"] == 1
+    normalized = rows.json()["items"][0]["normalized_data"]
+    assert normalized["family_code"] is None
+    assert commit.status_code == 200, commit.text
+
+    db_session.expire_all()
+    family = db_session.scalar(select(Family).where(Family.family_head_name == "Generated Import Head"))
+    member = db_session.scalar(select(Member).where(Member.can_number == "CAN-GENERATED-IMPORT"))
+    assert family is not None
+    assert family.family_code.startswith("FAM-")
+    assert family.family_code.endswith("-0001")
+    assert member is not None and member.family_id == family.id
+
+
+@pytest.mark.asyncio
+async def test_upload_treats_na_optional_cells_as_blank_values(
+    test_settings: Settings,
+    db_engine,
+    db_session: Session,
+) -> None:
+    admin = create_test_user(db_session, email="admin@example.test", role=UserRole.ADMIN)
+    row = template_row(
+        FamilyCode="NA",
+        FamilyHeadName="NA Optional Head",
+        PrimaryRMEmail="NA",
+        PrimaryRMName="NA",
+        FamilyRemarks="NA",
+        MemberName="NA Optional Member",
+        CANNumber="NA",
+        PAN="NA",
+        DateOfBirth="NA",
+        Mobile="NA",
+        Email="NA",
+        BankName="NA",
+        AccountNumber="NA",
+        IFSC="NA",
+        PayEezzAmount="NA",
+        PayEezzStartDate="NA",
+        Remarks="NA",
+    )
+
+    async with client_for(test_settings) as client:
+        assert (await login(client, admin.email)).status_code == 200
+        upload = await upload_file(client, "na-optional.csv", csv_template_bytes([row]))
+        batch = upload.json()
+        rows = await client.get(f"/api/v1/imports/{batch['id']}/rows")
+        commit = await client.post(f"/api/v1/imports/{batch['id']}/commit")
+
+    assert upload.status_code == 201, upload.text
+    assert batch["valid_row_count"] == 1
+    normalized = rows.json()["items"][0]["normalized_data"]
+    assert normalized["family_code"] is None
+    assert normalized["primary_rm_id"] is None
+    assert normalized["family_remarks"] is None
+    assert normalized["can_number"] is None
+    assert normalized["pan"] is None
+    assert normalized["date_of_birth"] is None
+    assert normalized["mobile"] is None
+    assert normalized["email"] is None
+    assert normalized["bank_name"] is None
+    assert normalized["bank_account_number"] is None
+    assert normalized["ifsc_code"] is None
+    assert normalized["payeezz_amount"] is None
+    assert normalized["payeezz_start_date"] is None
+    assert normalized["remarks"] is None
+    assert commit.status_code == 200, commit.text
+
+
+@pytest.mark.asyncio
+async def test_import_without_family_code_matches_existing_family_by_head_and_rm(
+    test_settings: Settings,
+    db_engine,
+    db_session: Session,
+) -> None:
+    admin = create_test_user(db_session, email="admin@example.test", role=UserRole.ADMIN)
+    rm = create_test_user(db_session, email="rm@example.test", role=UserRole.RM, name="RM One")
+    family = Family(family_code="FAM-EXISTING", family_head_name="Existing Head", primary_rm_id=rm.id)
+    db_session.add(family)
+    db_session.commit()
+
+    row = template_row(
+        FamilyCode="",
+        FamilyHeadName="Existing Head",
+        PrimaryRMEmail=rm.email,
+        CANNumber="CAN-MATCHED-FAMILY",
+    )
+
+    async with client_for(test_settings) as client:
+        assert (await login(client, admin.email)).status_code == 200
+        upload = await upload_file(client, "matched-family.csv", csv_template_bytes([row]))
+        batch = upload.json()
+        rows = await client.get(f"/api/v1/imports/{batch['id']}/rows")
+        commit = await client.post(f"/api/v1/imports/{batch['id']}/commit")
+
+    assert upload.status_code == 201, upload.text
+    assert batch["valid_row_count"] == 1
+    assert rows.json()["items"][0]["family_id"] == str(family.id)
+    assert commit.status_code == 200, commit.text
+
+    db_session.expire_all()
+    member = db_session.scalar(select(Member).where(Member.can_number == "CAN-MATCHED-FAMILY"))
+    assert member is not None and member.family_id == family.id
+    assert db_session.scalar(select(Family).where(Family.family_code.like("FAM-%-0001"))) is None
+
+
+@pytest.mark.asyncio
+async def test_import_without_family_code_conflicts_when_head_and_rm_match_multiple_families(
+    test_settings: Settings,
+    db_engine,
+    db_session: Session,
+) -> None:
+    admin = create_test_user(db_session, email="admin@example.test", role=UserRole.ADMIN)
+    rm = create_test_user(db_session, email="rm@example.test", role=UserRole.RM, name="RM One")
+    db_session.add_all(
+        [
+            Family(family_code="FAM-DUP-1", family_head_name="Duplicate Head", primary_rm_id=rm.id),
+            Family(family_code="FAM-DUP-2", family_head_name="Duplicate Head", primary_rm_id=rm.id),
+        ]
+    )
+    db_session.commit()
+
+    row = template_row(
+        FamilyCode="",
+        FamilyHeadName="Duplicate Head",
+        PrimaryRMEmail=rm.email,
+        CANNumber="CAN-DUP-FAMILY-MATCH",
+    )
+
+    async with client_for(test_settings) as client:
+        assert (await login(client, admin.email)).status_code == 200
+        upload = await upload_file(client, "ambiguous-family.csv", csv_template_bytes([row]))
+        batch = upload.json()
+        rows = await client.get(f"/api/v1/imports/{batch['id']}/rows")
+
+    assert upload.status_code == 201, upload.text
+    assert batch["valid_row_count"] == 0
+    assert batch["conflict_row_count"] == 1
+    conflict_row = rows.json()["items"][0]
+    assert conflict_row["status"] == "conflict"
+    assert "multiple active families match" in " ".join(conflict_row["errors"])
+
+
+@pytest.mark.asyncio
+async def test_import_with_blank_rm_creates_unassigned_family(
+    test_settings: Settings,
+    db_engine,
+    db_session: Session,
+) -> None:
+    admin = create_test_user(db_session, email="admin@example.test", role=UserRole.ADMIN)
+    row = template_row(
+        FamilyCode="",
+        FamilyHeadName="Unassigned Import Head",
+        PrimaryRMEmail="",
+        PrimaryRMName="",
+        CANNumber="CAN-UNASSIGNED-IMPORT",
+    )
+
+    async with client_for(test_settings) as client:
+        assert (await login(client, admin.email)).status_code == 200
+        upload = await upload_file(client, "unassigned-family.csv", csv_template_bytes([row]))
+        batch = upload.json()
+        rows = await client.get(f"/api/v1/imports/{batch['id']}/rows")
+        commit = await client.post(f"/api/v1/imports/{batch['id']}/commit")
+
+    assert upload.status_code == 201, upload.text
+    assert batch["valid_row_count"] == 1
+    assert rows.json()["items"][0]["normalized_data"]["primary_rm_id"] is None
+    assert commit.status_code == 200, commit.text
+
+    db_session.expire_all()
+    family = db_session.scalar(select(Family).where(Family.family_head_name == "Unassigned Import Head"))
+    member = db_session.scalar(select(Member).where(Member.can_number == "CAN-UNASSIGNED-IMPORT"))
+    assert family is not None and family.primary_rm_id is None
+    assert member is not None and member.family_id == family.id
+
+
+@pytest.mark.asyncio
+async def test_import_without_family_code_matches_unassigned_family_by_head(
+    test_settings: Settings,
+    db_engine,
+    db_session: Session,
+) -> None:
+    admin = create_test_user(db_session, email="admin@example.test", role=UserRole.ADMIN)
+    family = Family(family_code="FAM-UNASSIGNED", family_head_name="Unassigned Match Head", primary_rm_id=None)
+    db_session.add(family)
+    db_session.commit()
+
+    row = template_row(
+        FamilyCode="",
+        FamilyHeadName="Unassigned Match Head",
+        PrimaryRMEmail="",
+        PrimaryRMName="",
+        CANNumber="CAN-UNASSIGNED-MATCH",
+    )
+
+    async with client_for(test_settings) as client:
+        assert (await login(client, admin.email)).status_code == 200
+        upload = await upload_file(client, "unassigned-match.csv", csv_template_bytes([row]))
+        batch = upload.json()
+        rows = await client.get(f"/api/v1/imports/{batch['id']}/rows")
+        commit = await client.post(f"/api/v1/imports/{batch['id']}/commit")
+
+    assert upload.status_code == 201, upload.text
+    assert batch["valid_row_count"] == 1
+    assert rows.json()["items"][0]["family_id"] == str(family.id)
+    assert commit.status_code == 200, commit.text
+
+    db_session.expire_all()
+    member = db_session.scalar(select(Member).where(Member.can_number == "CAN-UNASSIGNED-MATCH"))
+    assert member is not None and member.family_id == family.id
+
+
+@pytest.mark.asyncio
+async def test_import_without_family_code_conflicts_when_multiple_unassigned_heads_match(
+    test_settings: Settings,
+    db_engine,
+    db_session: Session,
+) -> None:
+    admin = create_test_user(db_session, email="admin@example.test", role=UserRole.ADMIN)
+    db_session.add_all(
+        [
+            Family(family_code="FAM-UNASSIGNED-1", family_head_name="Duplicate Unassigned", primary_rm_id=None),
+            Family(family_code="FAM-UNASSIGNED-2", family_head_name="Duplicate Unassigned", primary_rm_id=None),
+        ]
+    )
+    db_session.commit()
+
+    row = template_row(
+        FamilyCode="",
+        FamilyHeadName="Duplicate Unassigned",
+        PrimaryRMEmail="",
+        PrimaryRMName="",
+        CANNumber="CAN-UNASSIGNED-CONFLICT",
+    )
+
+    async with client_for(test_settings) as client:
+        assert (await login(client, admin.email)).status_code == 200
+        upload = await upload_file(client, "unassigned-conflict.csv", csv_template_bytes([row]))
+        batch = upload.json()
+        rows = await client.get(f"/api/v1/imports/{batch['id']}/rows")
+
+    assert upload.status_code == 201, upload.text
+    assert batch["valid_row_count"] == 0
+    assert batch["conflict_row_count"] == 1
+    conflict_row = rows.json()["items"][0]
+    assert conflict_row["status"] == "conflict"
+    assert "multiple active families match" in " ".join(conflict_row["errors"])
+
+
+@pytest.mark.asyncio
+async def test_upload_defaults_blank_can_and_status_cells_to_pending_values(
+    test_settings: Settings,
+    db_engine,
+    db_session: Session,
+) -> None:
+    admin = create_test_user(db_session, email="admin@example.test", role=UserRole.ADMIN)
+    create_test_user(db_session, email="rm@example.test", role=UserRole.RM, name="RM One")
+    row = template_row(
+        FamilyCode="FAM-PENDING-IMPORT",
+        MemberName="Pending Import Member",
+        CANNumber="",
+        KYCStatus="",
+        MobileStatus="",
+        EmailStatus="",
+        NomineeStatus="",
+        PayEezzStatus="",
+    )
+
+    async with client_for(test_settings) as client:
+        assert (await login(client, admin.email)).status_code == 200
+        upload = await upload_file(client, "pending-defaults.csv", csv_template_bytes([row]))
+        batch = upload.json()
+        rows = await client.get(f"/api/v1/imports/{batch['id']}/rows")
+        commit = await client.post(f"/api/v1/imports/{batch['id']}/commit")
+
+    assert upload.status_code == 201, upload.text
+    assert batch["status"] == "validated"
+    assert batch["valid_row_count"] == 1
+    normalized = rows.json()["items"][0]["normalized_data"]
+    assert normalized["can_number"] is None
+    assert normalized["can_status"] == "Pending"
+    assert normalized["kyc_status"] == "Not Started"
+    assert normalized["mobile_verification_status"] == "Pending Verification"
+    assert normalized["email_verification_status"] == "Pending Verification"
+    assert normalized["nominee_verification_status"] == "Pending Verification"
+    assert normalized["payeezz_mandate_status"] == "Not Started"
+    assert commit.status_code == 200, commit.text
+
+    db_session.expire_all()
+    member = db_session.scalar(select(Member).where(Member.name == "Pending Import Member"))
+    assert member is not None
+    assert member.can_number is None
+    assert member.can_status == "Pending"
+    assert member.kyc_status == KycStatus.NOT_STARTED
+    assert member.mobile_verification_status == VerificationStatus.PENDING_VERIFICATION
+    assert member.email_verification_status == VerificationStatus.PENDING_VERIFICATION
+    assert member.nominee_verification_status == VerificationStatus.PENDING_VERIFICATION
+    assert member.payeezz_mandate_status == PayeezzStatus.NOT_STARTED
+
+
+@pytest.mark.asyncio
 async def test_upload_with_missing_required_header_fails_batch_validation(
     test_settings: Settings,
     db_engine,
@@ -312,22 +636,24 @@ async def test_commit_applies_valid_rows_preserves_local_remarks_leaves_conflict
         family_id=local_family.id,
         name="Old Member",
         can_number="CAN-UPDATE",
-        kyc_status=KycStatus.NO_KYC,
-        mobile_status=VerificationStatus.NOT_VERIFIED,
-        email_status=VerificationStatus.NOT_VERIFIED,
-        nominee_status=VerificationStatus.NOT_VERIFIED,
-        payeezz_status=PayeezzStatus.NOT_AVAILABLE,
+        can_status="Available",
+        kyc_status=KycStatus.NOT_STARTED,
+        mobile_verification_status=VerificationStatus.PENDING_VERIFICATION,
+        email_verification_status=VerificationStatus.PENDING_VERIFICATION,
+        nominee_verification_status=VerificationStatus.PENDING_VERIFICATION,
+        payeezz_mandate_status=PayeezzStatus.NOT_STARTED,
         remarks="Local member remarks",
     )
     conflict_member = Member(
         family_id=other_family.id,
         name="Conflict Original",
         can_number="CAN-CONFLICT",
-        kyc_status=KycStatus.NO_KYC,
-        mobile_status=VerificationStatus.NOT_VERIFIED,
-        email_status=VerificationStatus.NOT_VERIFIED,
-        nominee_status=VerificationStatus.NOT_VERIFIED,
-        payeezz_status=PayeezzStatus.NOT_AVAILABLE,
+        can_status="Available",
+        kyc_status=KycStatus.NOT_STARTED,
+        mobile_verification_status=VerificationStatus.PENDING_VERIFICATION,
+        email_verification_status=VerificationStatus.PENDING_VERIFICATION,
+        nominee_verification_status=VerificationStatus.PENDING_VERIFICATION,
+        payeezz_mandate_status=PayeezzStatus.NOT_STARTED,
         remarks="Conflict remarks",
     )
     db_session.add_all([local_member, conflict_member])
@@ -342,11 +668,11 @@ async def test_commit_applies_valid_rows_preserves_local_remarks_leaves_conflict
             MemberName="Updated Member",
             CANNumber="CAN-UPDATE",
             PAN="XYZAB9876C",
-            KYCStatus="Validated",
+            KYCStatus="Verified",
             MobileStatus="Verified",
             EmailStatus="Verified",
             NomineeStatus="Verified",
-            PayEezzStatus="Aggregator Accepted",
+            PayEezzStatus="Approved",
             Remarks="",
         ),
         template_row(
@@ -402,7 +728,7 @@ async def test_commit_applies_valid_rows_preserves_local_remarks_leaves_conflict
     assert persisted_family.remarks == "Local family remarks"
     assert persisted_member is not None
     assert persisted_member.name == "Updated Member"
-    assert persisted_member.kyc_status == KycStatus.VALIDATED
+    assert persisted_member.kyc_status == KycStatus.VERIFIED
     assert persisted_member.remarks == "Local member remarks"
     assert persisted_member.family_id == local_family.id
     assert persisted_conflict is not None
@@ -459,11 +785,12 @@ async def test_commit_does_not_mark_batch_committed_when_recheck_conflicts_all_v
                 family_id=other_family.id,
                 name="Late Conflict",
                 can_number="CAN-STALE",
-                kyc_status=KycStatus.NO_KYC,
-                mobile_status=VerificationStatus.NOT_VERIFIED,
-                email_status=VerificationStatus.NOT_VERIFIED,
-                nominee_status=VerificationStatus.NOT_VERIFIED,
-                payeezz_status=PayeezzStatus.NOT_AVAILABLE,
+                can_status="Available",
+                kyc_status=KycStatus.NOT_STARTED,
+                mobile_verification_status=VerificationStatus.PENDING_VERIFICATION,
+                email_verification_status=VerificationStatus.PENDING_VERIFICATION,
+                nominee_verification_status=VerificationStatus.PENDING_VERIFICATION,
+                payeezz_mandate_status=PayeezzStatus.NOT_STARTED,
             )
         )
         db_session.commit()

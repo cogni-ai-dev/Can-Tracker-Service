@@ -91,8 +91,8 @@ curl -sS -X POST "${BASE_URL}/api/v1/imports/${BATCH_ID}/commit" \
   `docs/plans/07-mfu-import-and-sync.md`.
 - Dates must use `YYYY-MM-DD`.
 - Enum labels must match canonical labels after trimming whitespace, for example
-  `Validated`, `Registered`, `No KYC`, `Verified`, `Not Verified`,
-  `Not Available`, `Sent for Approval`, and `Aggregator Accepted`.
+  `Verified`, `Pending Re-KYC`, `Not Started`, `Verified`, `Pending Verification`,
+  `Not Started`, `Pending Approval`, and `Approved`.
 - `PrimaryRMEmail` must match one active RM. If only `PrimaryRMName` is present,
   it must match exactly one active RM.
 - A CAN number can appear only once in the uploaded file.

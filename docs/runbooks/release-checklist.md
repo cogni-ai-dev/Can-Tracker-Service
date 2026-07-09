@@ -9,7 +9,7 @@ Complete this checklist before deploying to production.
 - [ ] `uv run pytest`
 - [ ] Migration applies to an empty database.
 - [ ] Migration applies to a copy of staging or production-like data.
-- [ ] Docker production build succeeds: `docker compose --env-file .env -f docker/can-tracker-service/docker-compose.yml build api`.
+- [ ] Docker production build succeeds: `docker compose -f docker/can-tracker-service/docker-compose.yml build can-tracker-service && docker compose -f docker/can-tracker-ui/docker-compose.yml build can-tracker-ui`.
 
 ## Security Gates
 

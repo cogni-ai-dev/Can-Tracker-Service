@@ -43,14 +43,14 @@ async def create_mixed_dashboard_fixture(
     await create_member(
         client,
         family_id=alpha["id"],
-        name="Alpha B Registered",
+        name="Alpha B Pending Re-KYC",
         can_number="CAN-A2",
         pan="BCDEF2345G",
-        kyc_status="Registered",
-        mobile_status="Not Verified",
-        email_status="Verified",
-        nominee_status="Not Verified",
-        payeezz_status="Sent for Approval",
+        kyc_status="Pending Re-KYC",
+        mobile_verification_status="Pending Verification",
+        email_verification_status="Verified",
+        nominee_verification_status="Pending Verification",
+        payeezz_mandate_status="Pending Approval",
     )
     await create_member(
         client,
@@ -58,11 +58,11 @@ async def create_mixed_dashboard_fixture(
         name="Alpha C No Kyc",
         can_number="CAN-A3",
         pan="CDEFG3456H",
-        kyc_status="No KYC",
-        mobile_status="Not Verified",
-        email_status="Not Verified",
-        nominee_status="Not Verified",
-        payeezz_status="Not Available",
+        kyc_status="Not Started",
+        mobile_verification_status="Pending Verification",
+        email_verification_status="Pending Verification",
+        nominee_verification_status="Pending Verification",
+        payeezz_mandate_status="Not Started",
     )
     await create_member(
         client,
@@ -96,30 +96,30 @@ async def test_dashboard_summary_and_family_summary_match_canonical_html_style_c
     assert summary_response.status_code == 200
     assert summary["total_clients"] == 4
     assert summary["total_families"] == 2
-    assert summary["kyc_validated"] == 2
-    assert summary["kyc_registered"] == 1
-    assert summary["kyc_no_kyc"] == 1
+    assert summary["kyc_verified"] == 2
+    assert summary["kyc_pending_rekyc"] == 1
+    assert summary["kyc_not_started"] == 1
     assert summary["kyc_pending"] == 2
-    assert summary["kyc_validated_pct"] == 50
+    assert summary["kyc_verified_pct"] == 50
     assert summary["kyc_pending_pct"] == 50
-    assert summary["payeezz_accepted"] == 2
-    assert summary["payeezz_sent_for_approval"] == 1
-    assert summary["payeezz_not_available"] == 1
+    assert summary["payeezz_approved"] == 2
+    assert summary["payeezz_pending_approval"] == 1
+    assert summary["payeezz_not_started"] == 1
     assert summary["payeezz_pending"] == 2
-    assert summary["payeezz_accepted_pct"] == 50
+    assert summary["payeezz_approved_pct"] == 50
     assert summary["payeezz_pending_pct"] == 50
     assert summary["mobile_verified"] == 2
-    assert summary["mobile_not_verified"] == 2
+    assert summary["mobile_pending_verification"] == 2
     assert summary["email_verified"] == 3
-    assert summary["email_not_verified"] == 1
+    assert summary["email_pending_verification"] == 1
     assert summary["nominee_verified"] == 2
-    assert summary["nominee_not_verified"] == 2
+    assert summary["nominee_pending_verification"] == 2
     assert summary["updated_at"] is not None
 
     rm_summary = rm_summary_response.json()
     assert rm_summary["total_clients"] == 3
     assert rm_summary["total_families"] == 1
-    assert rm_summary["kyc_validated"] == 1
+    assert rm_summary["kyc_verified"] == 1
     assert rm_summary["kyc_pending"] == 2
     assert rm_summary["payeezz_pending"] == 2
 
@@ -166,18 +166,18 @@ async def test_task_list_summary_filters_and_pagination_are_deterministic(
     assert first_page.json()["total"] == 9
     assert first_page.json()["limit"] == 4
     assert [item["member_name"] for item in first_page.json()["items"]] == [
-        "Alpha B Registered",
-        "Alpha B Registered",
-        "Alpha B Registered",
-        "Alpha B Registered",
+        "Alpha B Pending Re-KYC",
+        "Alpha B Pending Re-KYC",
+        "Alpha B Pending Re-KYC",
+        "Alpha B Pending Re-KYC",
     ]
     assert [item["type"] for item in first_page.json()["items"]] == ["kyc", "payeezz", "mobile", "nominee"]
     assert [item["priority"] for item in first_page.json()["items"]] == ["medium", "medium", "medium", "medium"]
     assert [item["label"] for item in first_page.json()["items"]] == [
         "Re-KYC",
-        "Pending",
-        "Unverified",
-        "Not Verified",
+        "Pending Approval",
+        "Pending Verification",
+        "Pending Verification",
     ]
 
     assert second_page.json()["total"] == 9
@@ -205,7 +205,7 @@ async def test_task_list_summary_filters_and_pagination_are_deterministic(
     assert alpha_tasks.json()["total"] == 9
     assert beta_tasks.json()["total"] == 0
     assert searched_tasks.json()["total"] == 4
-    assert {item["member_name"] for item in searched_tasks.json()["items"]} == {"Alpha B Registered"}
+    assert {item["member_name"] for item in searched_tasks.json()["items"]} == {"Alpha B Pending Re-KYC"}
     assert rm_two_tasks.json()["total"] == 0
     assert high_summary.json() == {
         "total_tasks": 2,
@@ -215,6 +215,53 @@ async def test_task_list_summary_filters_and_pagination_are_deterministic(
         "email": 0,
         "nominee": 0,
     }
+
+
+@pytest.mark.asyncio
+async def test_unassigned_family_appears_for_admin_not_rm_in_dashboard_and_tasks(
+    test_settings: Settings,
+    db_engine,
+    db_session: Session,
+) -> None:
+    admin = create_test_user(db_session, email="admin@example.test", role=UserRole.ADMIN)
+    rm = create_test_user(db_session, email="rm@example.test", role=UserRole.RM, name="RM")
+
+    async with client_for(test_settings) as client:
+        assert (await login(client, admin.email)).status_code == 200
+        family_response = await client.post(
+            "/api/v1/families",
+            json={"family_head_name": "Unassigned Dashboard Head"},
+        )
+        family = family_response.json()
+        await create_member(
+            client,
+            family_id=family["id"],
+            name="Unassigned Pending",
+            can_number="CAN-UNASSIGNED-DASH",
+            pan="ABCDE1234F",
+            kyc_status="Not Started",
+            payeezz_mandate_status="Not Started",
+        )
+        summary = await client.get("/api/v1/dashboard/summary")
+        detail = await client.get(f"/api/v1/dashboard/families/{family['id']}")
+        tasks = await client.get(f"/api/v1/tasks?family_id={family['id']}")
+
+    assert family_response.status_code == 201, family_response.text
+    assert summary.json()["total_families"] == 1
+    assert summary.json()["total_clients"] == 1
+    assert detail.json().get("primary_rm") is None
+    assert tasks.json()["total"] > 0
+    assert {item["rm_name"] for item in tasks.json()["items"]} == {"Unassigned"}
+    assert {item["rm_id"] for item in tasks.json()["items"]} == {None}
+
+    async with client_for(test_settings) as rm_client:
+        assert (await login(rm_client, rm.email)).status_code == 200
+        rm_summary = await rm_client.get("/api/v1/dashboard/summary")
+        rm_tasks = await rm_client.get("/api/v1/tasks")
+
+    assert rm_summary.json()["total_families"] == 0
+    assert rm_summary.json()["total_clients"] == 0
+    assert rm_tasks.json()["total"] == 0
 
 
 @pytest.mark.asyncio
@@ -237,24 +284,24 @@ async def test_empty_dashboard_tasks_and_zero_member_family_return_zeroes(
     assert empty_summary.json() == {
         "total_clients": 0,
         "total_families": 0,
-        "kyc_validated": 0,
-        "kyc_registered": 0,
-        "kyc_no_kyc": 0,
+        "kyc_verified": 0,
+        "kyc_pending_rekyc": 0,
+        "kyc_not_started": 0,
         "kyc_pending": 0,
-        "kyc_validated_pct": 0,
+        "kyc_verified_pct": 0,
         "kyc_pending_pct": 0,
-        "payeezz_accepted": 0,
-        "payeezz_sent_for_approval": 0,
-        "payeezz_not_available": 0,
+        "payeezz_approved": 0,
+        "payeezz_pending_approval": 0,
+        "payeezz_not_started": 0,
         "payeezz_pending": 0,
-        "payeezz_accepted_pct": 0,
+        "payeezz_approved_pct": 0,
         "payeezz_pending_pct": 0,
         "mobile_verified": 0,
-        "mobile_not_verified": 0,
+        "mobile_pending_verification": 0,
         "email_verified": 0,
-        "email_not_verified": 0,
+        "email_pending_verification": 0,
         "nominee_verified": 0,
-        "nominee_not_verified": 0,
+        "nominee_pending_verification": 0,
         "updated_at": None,
     }
     assert empty_tasks.json() == {"items": [], "total": 0, "limit": 50, "offset": 0}

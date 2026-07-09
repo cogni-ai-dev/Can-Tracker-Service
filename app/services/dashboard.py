@@ -37,7 +37,9 @@ def _not_found(entity: str) -> None:
     )
 
 
-def _user_summary(user: User) -> dict[str, Any]:
+def _user_summary(user: User | None) -> dict[str, Any] | None:
+    if user is None:
+        return None
     return {
         "id": user.id,
         "name": user.name,
@@ -87,20 +89,20 @@ def get_dashboard_summary(
     row = db.execute(
         select(
             func.count(Member.id).label("total_clients"),
-            _count_when(Member.kyc_status == KycStatus.VALIDATED.value).label("kyc_validated"),
-            _count_when(Member.kyc_status == KycStatus.REGISTERED.value).label("kyc_registered"),
-            _count_when(Member.kyc_status == KycStatus.NO_KYC.value).label("kyc_no_kyc"),
-            _count_when(Member.payeezz_status == PayeezzStatus.AGGREGATOR_ACCEPTED.value).label("payeezz_accepted"),
-            _count_when(Member.payeezz_status == PayeezzStatus.SENT_FOR_APPROVAL.value).label(
-                "payeezz_sent_for_approval"
+            _count_when(Member.kyc_status == KycStatus.VERIFIED.value).label("kyc_verified"),
+            _count_when(Member.kyc_status == KycStatus.PENDING_REKYC.value).label("kyc_pending_rekyc"),
+            _count_when(Member.kyc_status == KycStatus.NOT_STARTED.value).label("kyc_not_started"),
+            _count_when(Member.payeezz_mandate_status == PayeezzStatus.APPROVED.value).label("payeezz_approved"),
+            _count_when(Member.payeezz_mandate_status == PayeezzStatus.PENDING_APPROVAL.value).label(
+                "payeezz_pending_approval"
             ),
-            _count_when(Member.payeezz_status == PayeezzStatus.NOT_AVAILABLE.value).label("payeezz_not_available"),
-            _count_when(Member.mobile_status == VerificationStatus.VERIFIED.value).label("mobile_verified"),
-            _count_when(Member.mobile_status == VerificationStatus.NOT_VERIFIED.value).label("mobile_not_verified"),
-            _count_when(Member.email_status == VerificationStatus.VERIFIED.value).label("email_verified"),
-            _count_when(Member.email_status == VerificationStatus.NOT_VERIFIED.value).label("email_not_verified"),
-            _count_when(Member.nominee_status == VerificationStatus.VERIFIED.value).label("nominee_verified"),
-            _count_when(Member.nominee_status == VerificationStatus.NOT_VERIFIED.value).label("nominee_not_verified"),
+            _count_when(Member.payeezz_mandate_status == PayeezzStatus.NOT_STARTED.value).label("payeezz_not_started"),
+            _count_when(Member.mobile_verification_status == VerificationStatus.VERIFIED.value).label("mobile_verified"),
+            _count_when(Member.mobile_verification_status == VerificationStatus.PENDING_VERIFICATION.value).label("mobile_pending_verification"),
+            _count_when(Member.email_verification_status == VerificationStatus.VERIFIED.value).label("email_verified"),
+            _count_when(Member.email_verification_status == VerificationStatus.PENDING_VERIFICATION.value).label("email_pending_verification"),
+            _count_when(Member.nominee_verification_status == VerificationStatus.VERIFIED.value).label("nominee_verified"),
+            _count_when(Member.nominee_verification_status == VerificationStatus.PENDING_VERIFICATION.value).label("nominee_pending_verification"),
         )
         .select_from(Member)
         .join(Member.family)
@@ -109,14 +111,14 @@ def get_dashboard_summary(
     counts = row._mapping
 
     total_clients = int(counts["total_clients"] or 0)
-    kyc_validated = int(counts["kyc_validated"] or 0)
-    kyc_registered = int(counts["kyc_registered"] or 0)
-    kyc_no_kyc = int(counts["kyc_no_kyc"] or 0)
-    kyc_pending = kyc_registered + kyc_no_kyc
-    payeezz_accepted = int(counts["payeezz_accepted"] or 0)
-    payeezz_sent_for_approval = int(counts["payeezz_sent_for_approval"] or 0)
-    payeezz_not_available = int(counts["payeezz_not_available"] or 0)
-    payeezz_pending = payeezz_sent_for_approval + payeezz_not_available
+    kyc_verified = int(counts["kyc_verified"] or 0)
+    kyc_pending_rekyc = int(counts["kyc_pending_rekyc"] or 0)
+    kyc_not_started = int(counts["kyc_not_started"] or 0)
+    kyc_pending = kyc_pending_rekyc + kyc_not_started
+    payeezz_approved = int(counts["payeezz_approved"] or 0)
+    payeezz_pending_approval = int(counts["payeezz_pending_approval"] or 0)
+    payeezz_not_started = int(counts["payeezz_not_started"] or 0)
+    payeezz_pending = payeezz_pending_approval + payeezz_not_started
 
     family_updated_at = db.scalar(select(func.max(Family.updated_at)).where(*family_filters))
     member_updated_at = db.scalar(
@@ -128,24 +130,24 @@ def get_dashboard_summary(
     return {
         "total_clients": total_clients,
         "total_families": int(total_families),
-        "kyc_validated": kyc_validated,
-        "kyc_registered": kyc_registered,
-        "kyc_no_kyc": kyc_no_kyc,
+        "kyc_verified": kyc_verified,
+        "kyc_pending_rekyc": kyc_pending_rekyc,
+        "kyc_not_started": kyc_not_started,
         "kyc_pending": kyc_pending,
-        "kyc_validated_pct": percentage(kyc_validated, total_clients),
+        "kyc_verified_pct": percentage(kyc_verified, total_clients),
         "kyc_pending_pct": percentage(kyc_pending, total_clients),
-        "payeezz_accepted": payeezz_accepted,
-        "payeezz_sent_for_approval": payeezz_sent_for_approval,
-        "payeezz_not_available": payeezz_not_available,
+        "payeezz_approved": payeezz_approved,
+        "payeezz_pending_approval": payeezz_pending_approval,
+        "payeezz_not_started": payeezz_not_started,
         "payeezz_pending": payeezz_pending,
-        "payeezz_accepted_pct": percentage(payeezz_accepted, total_clients),
+        "payeezz_approved_pct": percentage(payeezz_approved, total_clients),
         "payeezz_pending_pct": percentage(payeezz_pending, total_clients),
         "mobile_verified": int(counts["mobile_verified"] or 0),
-        "mobile_not_verified": int(counts["mobile_not_verified"] or 0),
+        "mobile_pending_verification": int(counts["mobile_pending_verification"] or 0),
         "email_verified": int(counts["email_verified"] or 0),
-        "email_not_verified": int(counts["email_not_verified"] or 0),
+        "email_pending_verification": int(counts["email_pending_verification"] or 0),
         "nominee_verified": int(counts["nominee_verified"] or 0),
-        "nominee_not_verified": int(counts["nominee_not_verified"] or 0),
+        "nominee_pending_verification": int(counts["nominee_pending_verification"] or 0),
         "updated_at": updated_at,
     }
 

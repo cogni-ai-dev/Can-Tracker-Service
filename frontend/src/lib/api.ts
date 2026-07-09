@@ -116,21 +116,29 @@ export const complianceApi = {
     q?: string;
     rm_id?: string;
     status_filter?: string;
+    can_status?: string;
+    kyc_status?: string;
+    payeezz_mandate_status?: string;
+    mobile_verification_status?: string;
+    email_verification_status?: string;
+    nominee_verification_status?: string;
     limit?: number;
     offset?: number;
     sort?: string;
   }) => api.get<ListResponse<Family>>('/families', params),
   createFamily: (payload: FamilyPayload) => api.post<Family>('/families', payload),
   updateFamily: (familyId: string, payload: Partial<FamilyPayload>) => api.patch<Family>(`/families/${familyId}`, payload),
+  deleteFamily: (familyId: string) => api.delete<void>(`/families/${familyId}`),
   members: (params?: {
     q?: string;
     family_id?: string;
     rm_id?: string;
+    can_status?: string;
     kyc_status?: string;
-    payeezz_status?: string;
-    mobile_status?: string;
-    email_status?: string;
-    nominee_status?: string;
+    payeezz_mandate_status?: string;
+    mobile_verification_status?: string;
+    email_verification_status?: string;
+    nominee_verification_status?: string;
     limit?: number;
     offset?: number;
   }) => api.get<ListResponse<Member>>('/members', params),

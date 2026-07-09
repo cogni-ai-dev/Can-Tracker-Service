@@ -48,24 +48,24 @@ Return:
 
 - `total_clients`
 - `total_families`
-- `kyc_validated`
-- `kyc_registered`
-- `kyc_no_kyc`
+- `kyc_verified`
+- `kyc_pending_rekyc`
+- `kyc_not_started`
 - `kyc_pending`
-- `kyc_validated_pct`
+- `kyc_verified_pct`
 - `kyc_pending_pct`
-- `payeezz_accepted`
-- `payeezz_sent_for_approval`
-- `payeezz_not_available`
+- `payeezz_approved`
+- `payeezz_pending_approval`
+- `payeezz_not_started`
 - `payeezz_pending`
-- `payeezz_accepted_pct`
+- `payeezz_approved_pct`
 - `payeezz_pending_pct`
 - `mobile_verified`
-- `mobile_not_verified`
+- `mobile_pending_verification`
 - `email_verified`
-- `email_not_verified`
+- `email_pending_verification`
 - `nominee_verified`
-- `nominee_not_verified`
+- `nominee_pending_verification`
 - `updated_at`
 
 ### Family Summary Response

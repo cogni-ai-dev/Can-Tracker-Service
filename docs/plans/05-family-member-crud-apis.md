@@ -60,14 +60,14 @@ Constraints and indexes:
 - `date_of_birth`
 - `kyc_status`
 - encrypted and masked mobile fields.
-- `mobile_status`
+- `mobile_verification_status`
 - encrypted and masked email fields.
-- `email_status`
-- `nominee_status`
+- `email_verification_status`
+- `nominee_verification_status`
 - `bank_name`
 - encrypted and masked bank account fields.
 - `ifsc_code`
-- `payeezz_status`
+- `payeezz_mandate_status`
 - `payeezz_amount`
 - `payeezz_start_date`
 - `remarks`
@@ -80,8 +80,8 @@ Constraints and indexes:
 - unique active `can_number`.
 - index on `family_id`.
 - index on `kyc_status`.
-- index on `payeezz_status`.
-- index on `mobile_status`, `email_status`, and `nominee_status`.
+- index on `payeezz_mandate_status`.
+- index on `mobile_verification_status`, `email_verification_status`, and `nominee_verification_status`.
 - search hash indexes for PAN, mobile, and email.
 - search index for member name and CAN.
 
@@ -124,10 +124,10 @@ Member list endpoints support:
 - `family_id`
 - `rm_id`
 - `kyc_status`
-- `payeezz_status`
-- `mobile_status`
-- `email_status`
-- `nominee_status`
+- `payeezz_mandate_status`
+- `mobile_verification_status`
+- `email_verification_status`
+- `nominee_verification_status`
 - `limit`
 - `offset`
 
@@ -135,7 +135,7 @@ Member list endpoints support:
 
 Family:
 
-- `family_code` required and unique among active families.
+- `family_code` is generated when omitted and remains unique among active families.
 - `family_head_name` required.
 - `primary_rm_id` required and must reference active user with role `rm`.
 
@@ -148,7 +148,7 @@ Member:
 - PAN, if present, must be normalized uppercase and match Indian PAN format.
 - IFSC, if present, must be normalized uppercase and match IFSC format.
 - PayEezz amount, if present, must be non-negative.
-- PayEezz start date can be null unless status is `Aggregator Accepted`; if business later requires it, add a migration-backed validation change.
+- PayEezz start date can be null unless status is `Approved`; if business later requires it, add a migration-backed validation change.
 
 ### Response Contract
 
@@ -174,14 +174,14 @@ Member item:
 - `date_of_birth`
 - `kyc_status`
 - `mobile_masked`
-- `mobile_status`
+- `mobile_verification_status`
 - `email_masked`
-- `email_status`
-- `nominee_status`
+- `email_verification_status`
+- `nominee_verification_status`
 - `bank_name`
 - `bank_account_number_masked`
 - `ifsc_code`
-- `payeezz_status`
+- `payeezz_mandate_status`
 - `payeezz_amount`
 - `payeezz_start_date`
 - `remarks`

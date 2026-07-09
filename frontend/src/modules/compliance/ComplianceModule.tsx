@@ -11,17 +11,19 @@ import {
   YAxis,
 } from 'recharts';
 
-import { Badge, Card, EmptyState, PageHeader, formatINR } from '../../components/ui';
+import { Badge, Card, ConfirmActionDialog, EmptyState, PageHeader, formatINR } from '../../components/ui';
 import { complianceApi } from '../../lib/api';
 import {
   canCreateFamily,
   canCreateMember,
+  canDeleteFamily,
   canDeleteMember,
   canEditFamily,
   canEditMember,
   isCanRM,
 } from '../../lib/access';
 import type {
+  CanStatus,
   CurrentUser,
   DashboardSummary,
   Family,
@@ -57,11 +59,11 @@ const pageCopy: Record<string, { title: string; subtitle: string }> = {
   },
   kyc: {
     title: 'KYC Status',
-    subtitle: 'Track validated, re-KYC pending, and no-KYC clients.',
+    subtitle: 'Track verified, re-KYC pending, and not-started clients.',
   },
   payeezz: {
     title: 'PayEezz',
-    subtitle: 'Track payment mandate availability and aggregator acceptance.',
+    subtitle: 'Track mandate approval, pending approval, and not-started clients.',
   },
   contact: {
     title: 'Contact Verification',
@@ -82,9 +84,9 @@ const reportLabels: Record<ReportType, string> = {
   full: 'Full CAN Database Export',
 };
 
-const kycStatuses: KycStatus[] = ['Validated', 'Registered', 'No KYC'];
-const payeezzStatuses: PayeezzStatus[] = ['Aggregator Accepted', 'Sent for Approval', 'Not Available'];
-const verificationStatuses: VerificationStatus[] = ['Verified', 'Not Verified'];
+const kycStatuses: KycStatus[] = ['Verified', 'Pending Re-KYC', 'Not Started'];
+const payeezzStatuses: PayeezzStatus[] = ['Approved', 'Pending Approval', 'Not Started'];
+const verificationStatuses: VerificationStatus[] = ['Verified', 'Pending Verification'];
 
 type ModalState =
   | { type: 'family'; mode: 'create'; family?: undefined }
@@ -209,6 +211,10 @@ export function ComplianceModule({ user }: { user: CurrentUser }) {
           onEditFamily={(family) => setModal({ type: 'family', mode: 'edit', family })}
           onAddMember={(id) => setModal({ type: 'member', mode: 'create', familyId: id })}
           onEditMember={(id, member) => setModal({ type: 'member', mode: 'edit', familyId: id, member })}
+          onDeleted={() => {
+            refresh();
+            navigate('/compliance/families');
+          }}
           onChanged={refresh}
         />
       )}
@@ -313,13 +319,13 @@ function DashboardPage({
   if (!summary || !taskSummary) return <LoadingBlock label="Loading dashboard..." />;
 
   const chartData = [
-    { name: 'KYC Validated', value: summary.kyc_validated },
+    { name: 'KYC Verified', value: summary.kyc_verified },
     { name: 'KYC Pending', value: summary.kyc_pending },
-    { name: 'PayEezz Accepted', value: summary.payeezz_accepted },
+    { name: 'PayEezz Approved', value: summary.payeezz_approved },
     { name: 'PayEezz Pending', value: summary.payeezz_pending },
-    { name: 'Mobile Pending', value: summary.mobile_not_verified },
-    { name: 'Email Pending', value: summary.email_not_verified },
-    { name: 'Nominee Pending', value: summary.nominee_not_verified },
+    { name: 'Mobile Pending', value: summary.mobile_pending_verification },
+    { name: 'Email Pending', value: summary.email_pending_verification },
+    { name: 'Nominee Pending', value: summary.nominee_pending_verification },
   ];
 
   return (
@@ -348,8 +354,8 @@ function DashboardPage({
         <Card>
           <div className="text-sm font-semibold text-slate-900">Status Completion</div>
           <div className="mt-4 space-y-4">
-            <ProgressRow label="KYC Validated" value={summary.kyc_validated_pct} tone="green" />
-            <ProgressRow label="PayEezz Accepted" value={summary.payeezz_accepted_pct} tone="green" />
+            <ProgressRow label="KYC Verified" value={summary.kyc_verified_pct} tone="green" />
+            <ProgressRow label="PayEezz Approved" value={summary.payeezz_approved_pct} tone="green" />
             <ProgressRow label="Mobile Verified" value={percent(summary.mobile_verified, summary.total_clients)} tone="blue" />
             <ProgressRow label="Email Verified" value={percent(summary.email_verified, summary.total_clients)} tone="blue" />
             <ProgressRow label="Nominee Verified" value={percent(summary.nominee_verified, summary.total_clients)} tone="blue" />
@@ -484,7 +490,7 @@ function FamiliesPage({
               <FamilyCard
                 key={family.id}
                 family={family}
-                rmName={rms.find((rm) => rm.id === family.primary_rm.id)?.name || family.primary_rm.name}
+                rmName={displayRm(family.primary_rm, rms)}
                 canEdit={canEditFamily(user)}
                 canAddMember={canCreateMember(user)}
                 onOpen={() => onOpenFamily(family.id)}
@@ -508,6 +514,7 @@ function FamilyDetailPage({
   onEditFamily,
   onAddMember,
   onEditMember,
+  onDeleted,
   onChanged,
 }: {
   familyId: string;
@@ -517,10 +524,13 @@ function FamilyDetailPage({
   onEditFamily: (family: FamilyDashboard) => void;
   onAddMember: (familyId: string) => void;
   onEditMember: (familyId: string, member: Member) => void;
+  onDeleted: () => void;
   onChanged: () => void;
 }) {
   const [state, setState] = useState<LoadState<FamilyDashboard>>({ loading: true, error: '', data: null });
   const [message, setMessage] = useState('');
+  const [confirmAction, setConfirmAction] = useState<{ type: 'family' } | { type: 'member'; member: Member } | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -546,15 +556,34 @@ function FamilyDetailPage({
     }
   }
 
-  async function deleteMember(member: Member) {
-    if (!canDeleteMember(user)) return;
-    if (!window.confirm(`Delete member ${member.name}?`)) return;
+  async function confirmDelete() {
+    if (!confirmAction) return;
+    if (confirmAction.type === 'member') {
+      if (!canDeleteMember(user)) return;
+      setDeleteBusy(true);
+      try {
+        await complianceApi.deleteMember(confirmAction.member.id);
+        setMessage('Member deleted.');
+        setConfirmAction(null);
+        onChanged();
+      } catch (error) {
+        setMessage(friendlyError(error));
+      } finally {
+        setDeleteBusy(false);
+      }
+      return;
+    }
+    if (!canDeleteFamily(user) || !state.data) return;
+    setDeleteBusy(true);
     try {
-      await complianceApi.deleteMember(member.id);
-      setMessage('Member deleted.');
-      onChanged();
+      await complianceApi.deleteFamily(state.data.id);
+      setMessage('Family deleted.');
+      setConfirmAction(null);
+      onDeleted();
     } catch (error) {
       setMessage(friendlyError(error));
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -563,6 +592,11 @@ function FamilyDetailPage({
 
   const family = state.data;
   const memberCount = family.number_of_members || family.members.length;
+  const confirmTitle = confirmAction?.type === 'member' ? 'Delete Member' : 'Delete Family';
+  const confirmMessage = confirmAction?.type === 'member'
+    ? `Delete member ${confirmAction.member.name}? This action cannot be undone.`
+    : `Delete family ${family.family_head_name}? This will also delete its members. This action cannot be undone.`;
+  const confirmLabel = confirmAction?.type === 'member' ? 'Delete Member' : 'Delete Family';
 
   return (
     <div className="space-y-4">
@@ -583,13 +617,18 @@ function FamilyDetailPage({
         <button type="button" onClick={exportFamily} className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
           <Download size={16} /> Export CSV
         </button>
+        {canDeleteFamily(user) && (
+          <button type="button" onClick={() => setConfirmAction({ type: 'family' })} className="inline-flex items-center gap-2 rounded-md border border-rose-200 bg-white px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50">
+            <Trash2 size={16} /> Delete Family
+          </button>
+        )}
       </div>
       {message && <div className="rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-700">{message}</div>}
       <Card>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="text-xl font-bold text-slate-950">{family.family_head_name}</div>
-            <div className="mt-1 text-sm text-slate-500">{family.family_code} | RM: {family.primary_rm.name}</div>
+            <div className="mt-1 text-sm text-slate-500">{family.family_code} | RM: {displayRm(family.primary_rm)}</div>
           </div>
           <Badge tone="blue">{memberCount} members</Badge>
         </div>
@@ -632,13 +671,13 @@ function FamilyDetailPage({
               {family.members.map((member) => (
                 <tr key={member.id} className="align-top">
                   <td className="px-3 py-3 font-semibold text-slate-900">{member.name}</td>
-                  <td className="px-3 py-3">{member.can_number}</td>
+                  <td className="px-3 py-3">{displayCan(member)}</td>
                   <td className="px-3 py-3">{member.pan_masked || '-'}</td>
                   <td className="px-3 py-3"><StatusBadge value={member.kyc_status} /></td>
-                  <td className="px-3 py-3"><StatusBadge value={member.mobile_status} /></td>
-                  <td className="px-3 py-3"><StatusBadge value={member.email_status} /></td>
-                  <td className="px-3 py-3"><StatusBadge value={member.nominee_status} /></td>
-                  <td className="px-3 py-3"><StatusBadge value={member.payeezz_status} /></td>
+                  <td className="px-3 py-3"><StatusBadge value={member.mobile_verification_status} /></td>
+                  <td className="px-3 py-3"><StatusBadge value={member.email_verification_status} /></td>
+                  <td className="px-3 py-3"><StatusBadge value={member.nominee_verification_status} /></td>
+                  <td className="px-3 py-3"><StatusBadge value={member.payeezz_mandate_status} /></td>
                   <td className="px-3 py-3">{member.bank_name || '-'}</td>
                   <td className="px-3 py-3">{formatDate(member.updated_at)}</td>
                   <td className="px-3 py-3">
@@ -649,7 +688,7 @@ function FamilyDetailPage({
                         </button>
                       )}
                       {canDeleteMember(user) && (
-                        <button type="button" onClick={() => deleteMember(member)} className="rounded-md border border-rose-200 px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50">
+                        <button type="button" onClick={() => setConfirmAction({ type: 'member', member })} className="rounded-md border border-rose-200 px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50">
                           Delete
                         </button>
                       )}
@@ -664,6 +703,16 @@ function FamilyDetailPage({
           </table>
         </div>
       </Card>
+      {confirmAction && (
+        <ConfirmActionDialog
+          title={confirmTitle}
+          message={confirmMessage}
+          confirmLabel={confirmLabel}
+          busy={deleteBusy}
+          onCancel={() => setConfirmAction(null)}
+          onConfirm={confirmDelete}
+        />
+      )}
     </div>
   );
 }
@@ -671,9 +720,9 @@ function FamilyDetailPage({
 function KycPage({ user, rmParams, refreshToken, onOpenFamily, onEditMember }: StatusPageProps) {
   const tabs: Array<{ key: string; label: string; params: Record<string, string> }> = [
     { key: 'all', label: 'All Clients', params: {} },
-    { key: 'validated', label: 'Validated', params: { kyc_status: 'Validated' } },
-    { key: 'registered', label: 'Re-KYC Pending', params: { kyc_status: 'Registered' } },
-    { key: 'no_kyc', label: 'No KYC', params: { kyc_status: 'No KYC' } },
+    { key: 'verified', label: 'Verified', params: { kyc_status: 'Verified' } },
+    { key: 'pending_rekyc', label: 'Re-KYC Pending', params: { kyc_status: 'Pending Re-KYC' } },
+    { key: 'not_started', label: 'Not Started', params: { kyc_status: 'Not Started' } },
   ];
   return (
     <MemberStatusPage
@@ -693,9 +742,9 @@ function KycPage({ user, rmParams, refreshToken, onOpenFamily, onEditMember }: S
 function PayeezzPage({ user, rmParams, refreshToken, onOpenFamily, onEditMember }: StatusPageProps) {
   const tabs: Array<{ key: string; label: string; params: Record<string, string> }> = [
     { key: 'all', label: 'All Clients', params: {} },
-    { key: 'accepted', label: 'Accepted', params: { payeezz_status: 'Aggregator Accepted' } },
-    { key: 'sent', label: 'Sent for Approval', params: { payeezz_status: 'Sent for Approval' } },
-    { key: 'not_available', label: 'Not Available', params: { payeezz_status: 'Not Available' } },
+    { key: 'approved', label: 'Approved', params: { payeezz_mandate_status: 'Approved' } },
+    { key: 'pending_approval', label: 'Pending Approval', params: { payeezz_mandate_status: 'Pending Approval' } },
+    { key: 'not_started', label: 'Not Started', params: { payeezz_mandate_status: 'Not Started' } },
   ];
   return (
     <MemberStatusPage
@@ -715,9 +764,9 @@ function PayeezzPage({ user, rmParams, refreshToken, onOpenFamily, onEditMember 
 function ContactPage({ user, rmParams, refreshToken, onOpenFamily, onEditMember }: StatusPageProps) {
   const tabs: Array<{ key: string; label: string; params: Record<string, string> }> = [
     { key: 'all', label: 'All Clients', params: {} },
-    { key: 'mobile', label: 'Mobile Pending', params: { mobile_status: 'Not Verified' } },
-    { key: 'email', label: 'Email Pending', params: { email_status: 'Not Verified' } },
-    { key: 'nominee', label: 'Nominee Pending', params: { nominee_status: 'Not Verified' } },
+    { key: 'mobile', label: 'Mobile Pending', params: { mobile_verification_status: 'Pending Verification' } },
+    { key: 'email', label: 'Email Pending', params: { email_verification_status: 'Pending Verification' } },
+    { key: 'nominee', label: 'Nominee Pending', params: { nominee_verification_status: 'Pending Verification' } },
   ];
   return (
     <MemberStatusPage
@@ -936,7 +985,7 @@ function FamilyModal({
   const [form, setForm] = useState<FamilyPayload>({
     family_code: family?.family_code || '',
     family_head_name: family?.family_head_name || '',
-    primary_rm_id: family?.primary_rm.id || rms[0]?.id || '',
+    primary_rm_id: family?.primary_rm?.id || '',
     remarks: family?.remarks || '',
   });
   const [error, setError] = useState('');
@@ -952,15 +1001,25 @@ function FamilyModal({
     setBusy(true);
     try {
       if (editing) {
-        const payload = remarksOnly ? { remarks: form.remarks || null } : { ...form, remarks: form.remarks || null };
+        const payload = remarksOnly
+          ? { remarks: form.remarks || null }
+          : {
+              family_head_name: form.family_head_name,
+              primary_rm_id: form.primary_rm_id || null,
+              remarks: form.remarks || null,
+            };
         const saved = await complianceApi.updateFamily(family!.id, payload);
         onSaved(saved);
       } else {
-        if (!form.family_code.trim() || !form.family_head_name.trim() || !form.primary_rm_id) {
-          setError('Family code, family head, and RM are required.');
+        if (!form.family_head_name.trim()) {
+          setError('Family head is required.');
           return;
         }
-        const saved = await complianceApi.createFamily({ ...form, remarks: form.remarks || null });
+        const saved = await complianceApi.createFamily({
+          family_head_name: form.family_head_name,
+          primary_rm_id: form.primary_rm_id || null,
+          remarks: form.remarks || null,
+        });
         onSaved(saved);
       }
     } catch (error) {
@@ -975,15 +1034,17 @@ function FamilyModal({
       <form onSubmit={submit} className="space-y-4">
         {error && <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
         <div className="grid gap-4 md:grid-cols-2">
-          <Field label="Family Code">
-            <input value={form.family_code} disabled={remarksOnly} onChange={(event) => update('family_code', event.target.value)} className={inputClass} required />
-          </Field>
+          {editing && (
+            <Field label="Family Code">
+              <input value={form.family_code || ''} disabled className={inputClass} />
+            </Field>
+          )}
           <Field label="Family Head">
             <input value={form.family_head_name} disabled={remarksOnly} onChange={(event) => update('family_head_name', event.target.value)} className={inputClass} required />
           </Field>
           <Field label="Primary RM">
-            <select value={form.primary_rm_id} disabled={remarksOnly} onChange={(event) => update('primary_rm_id', event.target.value)} className={inputClass} required>
-              <option value="">Select RM</option>
+            <select value={form.primary_rm_id || ''} disabled={remarksOnly} onChange={(event) => update('primary_rm_id', event.target.value || null)} className={inputClass}>
+              <option value="">Unassigned</option>
               {rms.map((rm) => <option key={rm.id} value={rm.id}>{rm.name}</option>)}
             </select>
           </Field>
@@ -1018,18 +1079,19 @@ function MemberModal({
   const [form, setForm] = useState<MemberPayload>({
     name: member?.name || '',
     can_number: member?.can_number || '',
+    can_status: member?.can_status || 'Pending',
     pan: '',
     date_of_birth: member?.date_of_birth || null,
-    kyc_status: member?.kyc_status || 'No KYC',
+    kyc_status: member?.kyc_status || 'Not Started',
     mobile: '',
-    mobile_status: member?.mobile_status || 'Not Verified',
+    mobile_verification_status: member?.mobile_verification_status || 'Pending Verification',
     email: '',
-    email_status: member?.email_status || 'Not Verified',
-    nominee_status: member?.nominee_status || 'Not Verified',
+    email_verification_status: member?.email_verification_status || 'Pending Verification',
+    nominee_verification_status: member?.nominee_verification_status || 'Pending Verification',
     bank_name: member?.bank_name || '',
     bank_account_number: '',
     ifsc_code: member?.ifsc_code || '',
-    payeezz_status: member?.payeezz_status || 'Not Available',
+    payeezz_mandate_status: member?.payeezz_mandate_status || 'Not Started',
     payeezz_amount: member?.payeezz_amount === null || member?.payeezz_amount === undefined ? null : Number(member.payeezz_amount),
     payeezz_start_date: member?.payeezz_start_date || null,
     remarks: member?.remarks || '',
@@ -1043,17 +1105,19 @@ function MemberModal({
 
   function buildPayload(): Partial<MemberPayload> {
     if (remarksOnly) return { remarks: form.remarks || null };
+    const canNumber = form.can_number?.trim() || null;
     const payload: Partial<MemberPayload> = {
       name: form.name.trim(),
-      can_number: form.can_number.trim(),
+      can_number: canNumber,
+      can_status: (canNumber ? 'Available' : 'Pending') as CanStatus,
       date_of_birth: form.date_of_birth || null,
       kyc_status: form.kyc_status,
-      mobile_status: form.mobile_status,
-      email_status: form.email_status,
-      nominee_status: form.nominee_status,
+      mobile_verification_status: form.mobile_verification_status,
+      email_verification_status: form.email_verification_status,
+      nominee_verification_status: form.nominee_verification_status,
       bank_name: form.bank_name?.trim() || null,
       ifsc_code: form.ifsc_code?.trim() || null,
-      payeezz_status: form.payeezz_status,
+      payeezz_mandate_status: form.payeezz_mandate_status,
       payeezz_amount: form.payeezz_amount === undefined ? null : form.payeezz_amount,
       payeezz_start_date: form.payeezz_start_date || null,
       remarks: form.remarks?.trim() || null,
@@ -1070,8 +1134,8 @@ function MemberModal({
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError('');
-    if (!remarksOnly && (!form.name.trim() || !form.can_number.trim())) {
-      setError('Name and CAN are required.');
+    if (!remarksOnly && !form.name.trim()) {
+      setError('Name is required.');
       return;
     }
     setBusy(true);
@@ -1099,7 +1163,7 @@ function MemberModal({
             <input value={form.name} disabled={remarksOnly} onChange={(event) => update('name', event.target.value)} className={inputClass} required={!remarksOnly} />
           </Field>
           <Field label="CAN Number">
-            <input value={form.can_number} disabled={remarksOnly} onChange={(event) => update('can_number', event.target.value)} className={inputClass} required={!remarksOnly} />
+            <input value={form.can_number || ''} disabled={remarksOnly} onChange={(event) => update('can_number', event.target.value)} className={inputClass} placeholder="Leave blank until CAN is available" />
           </Field>
           <Field label="PAN">
             <input value={form.pan || ''} disabled={remarksOnly || clearPan} onChange={(event) => update('pan', event.target.value)} placeholder={member?.pan_masked ? `Stored: ${member.pan_masked}` : 'ABCDE1234F'} className={inputClass} />
@@ -1117,7 +1181,7 @@ function MemberModal({
             <input value={form.mobile || ''} disabled={remarksOnly} onChange={(event) => update('mobile', event.target.value)} placeholder={member?.mobile_masked ? `Stored: ${member.mobile_masked}` : 'Mobile number'} className={inputClass} />
           </Field>
           <Field label="Mobile Status">
-            <select value={form.mobile_status} disabled={remarksOnly} onChange={(event) => update('mobile_status', event.target.value as VerificationStatus)} className={inputClass}>
+            <select value={form.mobile_verification_status} disabled={remarksOnly} onChange={(event) => update('mobile_verification_status', event.target.value as VerificationStatus)} className={inputClass}>
               {verificationStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
             </select>
           </Field>
@@ -1125,12 +1189,12 @@ function MemberModal({
             <input value={form.email || ''} disabled={remarksOnly} onChange={(event) => update('email', event.target.value)} placeholder={member?.email_masked ? `Stored: ${member.email_masked}` : 'client@example.com'} className={inputClass} />
           </Field>
           <Field label="Email Status">
-            <select value={form.email_status} disabled={remarksOnly} onChange={(event) => update('email_status', event.target.value as VerificationStatus)} className={inputClass}>
+            <select value={form.email_verification_status} disabled={remarksOnly} onChange={(event) => update('email_verification_status', event.target.value as VerificationStatus)} className={inputClass}>
               {verificationStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
             </select>
           </Field>
           <Field label="Nominee Status">
-            <select value={form.nominee_status} disabled={remarksOnly} onChange={(event) => update('nominee_status', event.target.value as VerificationStatus)} className={inputClass}>
+            <select value={form.nominee_verification_status} disabled={remarksOnly} onChange={(event) => update('nominee_verification_status', event.target.value as VerificationStatus)} className={inputClass}>
               {verificationStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
             </select>
           </Field>
@@ -1145,7 +1209,7 @@ function MemberModal({
             <input value={form.ifsc_code || ''} disabled={remarksOnly} onChange={(event) => update('ifsc_code', event.target.value)} className={inputClass} />
           </Field>
           <Field label="PayEezz Status">
-            <select value={form.payeezz_status} disabled={remarksOnly} onChange={(event) => update('payeezz_status', event.target.value as PayeezzStatus)} className={inputClass}>
+            <select value={form.payeezz_mandate_status} disabled={remarksOnly} onChange={(event) => update('payeezz_mandate_status', event.target.value as PayeezzStatus)} className={inputClass}>
               {payeezzStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
             </select>
           </Field>
@@ -1223,7 +1287,7 @@ function CanSearch({ onOpenFamily }: { onOpenFamily: (familyId: string) => void 
               <SearchResults title="Families" items={families.map((family) => ({
                 id: family.id,
                 title: family.family_head_name,
-                detail: `${family.family_code} | ${family.primary_rm.name}`,
+                detail: `${family.family_code} | ${displayRm(family.primary_rm)}`,
                 familyId: family.id,
               }))} onOpenFamily={onOpenFamily} />
             )}
@@ -1231,7 +1295,7 @@ function CanSearch({ onOpenFamily }: { onOpenFamily: (familyId: string) => void 
               <SearchResults title="Members" items={members.map((member) => ({
                 id: member.id,
                 title: member.name,
-                detail: `${member.family_head_name} | ${member.can_number}`,
+                detail: `${member.family_head_name} | ${displayCan(member)}`,
                 familyId: member.family_id,
               }))} onOpenFamily={onOpenFamily} />
             )}
@@ -1366,17 +1430,17 @@ function MembersTable({
             <tr key={member.id}>
               <td className="px-3 py-3 font-semibold text-slate-900">{member.name}</td>
               {columns.includes('family') && <td className="px-3 py-3">{member.family_head_name}</td>}
-              {columns.includes('can') && <td className="px-3 py-3">{member.can_number}</td>}
+              {columns.includes('can') && <td className="px-3 py-3">{displayCan(member)}</td>}
               {columns.includes('pan') && <td className="px-3 py-3">{member.pan_masked || '-'}</td>}
               {columns.includes('bank') && <td className="px-3 py-3">{member.bank_name || '-'}</td>}
               {columns.includes('kyc') && <td className="px-3 py-3"><StatusBadge value={member.kyc_status} /></td>}
-              {columns.includes('payeezz') && <td className="px-3 py-3"><StatusBadge value={member.payeezz_status} /></td>}
+              {columns.includes('payeezz') && <td className="px-3 py-3"><StatusBadge value={member.payeezz_mandate_status} /></td>}
               {columns.includes('amount') && <td className="px-3 py-3">{member.payeezz_amount ? formatINR(Number(member.payeezz_amount)) : '-'}</td>}
               {columns.includes('start') && <td className="px-3 py-3">{formatDate(member.payeezz_start_date)}</td>}
-              {columns.includes('mobile') && <td className="px-3 py-3"><StatusBadge value={member.mobile_status} /></td>}
-              {columns.includes('email') && <td className="px-3 py-3"><StatusBadge value={member.email_status} /></td>}
-              {columns.includes('nominee') && <td className="px-3 py-3"><StatusBadge value={member.nominee_status} /></td>}
-              {columns.includes('rm') && <td className="px-3 py-3">{member.primary_rm.name}</td>}
+              {columns.includes('mobile') && <td className="px-3 py-3"><StatusBadge value={member.mobile_verification_status} /></td>}
+              {columns.includes('email') && <td className="px-3 py-3"><StatusBadge value={member.email_verification_status} /></td>}
+              {columns.includes('nominee') && <td className="px-3 py-3"><StatusBadge value={member.nominee_verification_status} /></td>}
+              {columns.includes('rm') && <td className="px-3 py-3">{displayRm(member.primary_rm)}</td>}
               {columns.includes('updated') && <td className="px-3 py-3">{formatDate(member.updated_at)}</td>}
               <td className="px-3 py-3">
                 <div className="flex flex-wrap gap-2">
@@ -1402,26 +1466,26 @@ function StatusKpis({ kind, summary }: { kind: 'kyc' | 'payeezz' | 'contact'; su
   if (kind === 'kyc') {
     return (
       <div className="grid gap-4 md:grid-cols-3">
-        <MetricCard label="KYC Validated" value={summary.kyc_validated} tone="green" detail={`${percent(summary.kyc_validated, summary.total_clients)}%`} />
-        <MetricCard label="Re-KYC Pending" value={summary.kyc_registered} tone="yellow" detail={`${percent(summary.kyc_registered, summary.total_clients)}%`} />
-        <MetricCard label="No KYC" value={summary.kyc_no_kyc} tone="red" detail={`${percent(summary.kyc_no_kyc, summary.total_clients)}%`} />
+        <MetricCard label="KYC Verified" value={summary.kyc_verified} tone="green" detail={`${percent(summary.kyc_verified, summary.total_clients)}%`} />
+        <MetricCard label="Re-KYC Pending" value={summary.kyc_pending_rekyc} tone="yellow" detail={`${percent(summary.kyc_pending_rekyc, summary.total_clients)}%`} />
+        <MetricCard label="Not Started" value={summary.kyc_not_started} tone="red" detail={`${percent(summary.kyc_not_started, summary.total_clients)}%`} />
       </div>
     );
   }
   if (kind === 'payeezz') {
     return (
       <div className="grid gap-4 md:grid-cols-3">
-        <MetricCard label="Aggregator Accepted" value={summary.payeezz_accepted} tone="green" detail={`${summary.payeezz_accepted_pct}%`} />
-        <MetricCard label="Sent for Approval" value={summary.payeezz_sent_for_approval} tone="yellow" detail={`${percent(summary.payeezz_sent_for_approval, summary.total_clients)}%`} />
-        <MetricCard label="Not Available" value={summary.payeezz_not_available} tone="red" detail={`${percent(summary.payeezz_not_available, summary.total_clients)}%`} />
+        <MetricCard label="Approved" value={summary.payeezz_approved} tone="green" detail={`${summary.payeezz_approved_pct}%`} />
+        <MetricCard label="Pending Approval" value={summary.payeezz_pending_approval} tone="yellow" detail={`${percent(summary.payeezz_pending_approval, summary.total_clients)}%`} />
+        <MetricCard label="Not Started" value={summary.payeezz_not_started} tone="red" detail={`${percent(summary.payeezz_not_started, summary.total_clients)}%`} />
       </div>
     );
   }
   return (
     <div className="grid gap-4 md:grid-cols-3">
-      <MetricCard label="Mobile Pending" value={summary.mobile_not_verified} tone="red" detail={`${percent(summary.mobile_not_verified, summary.total_clients)}%`} />
-      <MetricCard label="Email Pending" value={summary.email_not_verified} tone="red" detail={`${percent(summary.email_not_verified, summary.total_clients)}%`} />
-      <MetricCard label="Nominee Pending" value={summary.nominee_not_verified} tone="red" detail={`${percent(summary.nominee_not_verified, summary.total_clients)}%`} />
+      <MetricCard label="Mobile Pending" value={summary.mobile_pending_verification} tone="red" detail={`${percent(summary.mobile_pending_verification, summary.total_clients)}%`} />
+      <MetricCard label="Email Pending" value={summary.email_pending_verification} tone="red" detail={`${percent(summary.email_pending_verification, summary.total_clients)}%`} />
+      <MetricCard label="Nominee Pending" value={summary.nominee_pending_verification} tone="red" detail={`${percent(summary.nominee_pending_verification, summary.total_clients)}%`} />
     </div>
   );
 }
@@ -1544,11 +1608,11 @@ function ProgressRow({ label, value, tone, compact = false }: { label: string; v
 }
 
 function StatusBadge({ value }: { value: string }) {
-  const tone = value === 'Validated' || value === 'Verified' || value === 'Aggregator Accepted'
+  const tone = value === 'Verified' || value === 'Approved' || value === 'Available'
     ? 'green'
-    : value === 'Registered' || value === 'Sent for Approval'
+    : value === 'Pending Re-KYC' || value === 'Pending Approval' || value === 'Pending'
       ? 'yellow'
-      : value === 'No KYC' || value === 'Not Verified' || value === 'Not Available'
+      : value === 'Not Started' || value === 'Pending Verification'
         ? 'red'
         : 'slate';
   return <Badge tone={tone}>{value}</Badge>;
@@ -1620,6 +1684,15 @@ function formatDate(value: string | null | undefined) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function displayCan(member: Pick<Member, 'can_number' | 'can_status'>) {
+  return member.can_number || member.can_status;
+}
+
+function displayRm(rm: Member['primary_rm'] | Family['primary_rm'], rms: UserRecord[] = []) {
+  if (!rm) return 'Unassigned';
+  return rms.find((candidate) => candidate.id === rm.id)?.name || rm.name;
 }
 
 function percent(value: number, total: number) {

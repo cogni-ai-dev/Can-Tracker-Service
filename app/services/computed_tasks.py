@@ -17,6 +17,8 @@ from app.models.family import Family, Member
 from app.models.user import User
 from app.schemas.tasks import TaskListFilters
 
+UNASSIGNED_RM_NAME = "Unassigned"
+
 
 def _forbidden(message: str) -> None:
     raise_api_error(status.HTTP_403_FORBIDDEN, "forbidden", message)
@@ -92,7 +94,7 @@ def _task_rows_subquery(
                 Family.family_head_name.label("family_head_name"),
                 Family.family_code.label("family_code"),
                 User.id.label("rm_id"),
-                User.name.label("rm_name"),
+                func.coalesce(User.name, UNASSIGNED_RM_NAME).label("rm_name"),
                 Member.can_number.label("can_number"),
                 literal(rule.description).label("description"),
                 literal(rule.label).label("label"),
@@ -100,7 +102,7 @@ def _task_rows_subquery(
             )
             .select_from(Member)
             .join(Member.family)
-            .join(User, Family.primary_rm_id == User.id)
+            .outerjoin(User, Family.primary_rm_id == User.id)
             .where(*base_filters, status_column == rule.status_value)
         )
 

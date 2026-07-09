@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.config import Settings
 from app.core.pii import email_search_hash, mobile_search_hash, pan_search_hash
 from app.domain.access import user_is_can_rm
-from app.domain.enums import KycStatus, PayeezzStatus, VerificationStatus
+from app.domain.enums import CanStatus, KycStatus, PayeezzStatus, VerificationStatus
 from app.models.family import Family, Member
 from app.models.user import User
 
@@ -31,11 +31,12 @@ def member_filter_conditions(
     q: str | None = None,
     family_id: UUID | None = None,
     rm_id: UUID | None = None,
+    can_status: CanStatus | str | None = None,
     kyc_status: KycStatus | str | None = None,
-    payeezz_status: PayeezzStatus | str | None = None,
-    mobile_status: VerificationStatus | str | None = None,
-    email_status: VerificationStatus | str | None = None,
-    nominee_status: VerificationStatus | str | None = None,
+    payeezz_mandate_status: PayeezzStatus | str | None = None,
+    mobile_verification_status: VerificationStatus | str | None = None,
+    email_verification_status: VerificationStatus | str | None = None,
+    nominee_verification_status: VerificationStatus | str | None = None,
 ) -> list[object]:
     filters = member_visibility_filters(user)
     if family_id is not None:
@@ -56,16 +57,18 @@ def member_filter_conditions(
                 Member.email_search_hash == email_search_hash(term, settings),
             )
         )
+    if can_status is not None:
+        filters.append(Member.can_status == _status_value(can_status))
     if kyc_status is not None:
         filters.append(Member.kyc_status == _status_value(kyc_status))
-    if payeezz_status is not None:
-        filters.append(Member.payeezz_status == _status_value(payeezz_status))
-    if mobile_status is not None:
-        filters.append(Member.mobile_status == _status_value(mobile_status))
-    if email_status is not None:
-        filters.append(Member.email_status == _status_value(email_status))
-    if nominee_status is not None:
-        filters.append(Member.nominee_status == _status_value(nominee_status))
+    if payeezz_mandate_status is not None:
+        filters.append(Member.payeezz_mandate_status == _status_value(payeezz_mandate_status))
+    if mobile_verification_status is not None:
+        filters.append(Member.mobile_verification_status == _status_value(mobile_verification_status))
+    if email_verification_status is not None:
+        filters.append(Member.email_verification_status == _status_value(email_verification_status))
+    if nominee_verification_status is not None:
+        filters.append(Member.nominee_verification_status == _status_value(nominee_verification_status))
     return filters
 
 
@@ -77,11 +80,12 @@ def list_members(
     q: str | None = None,
     family_id: UUID | None = None,
     rm_id: UUID | None = None,
+    can_status: CanStatus | str | None = None,
     kyc_status: KycStatus | str | None = None,
-    payeezz_status: PayeezzStatus | str | None = None,
-    mobile_status: VerificationStatus | str | None = None,
-    email_status: VerificationStatus | str | None = None,
-    nominee_status: VerificationStatus | str | None = None,
+    payeezz_mandate_status: PayeezzStatus | str | None = None,
+    mobile_verification_status: VerificationStatus | str | None = None,
+    email_verification_status: VerificationStatus | str | None = None,
+    nominee_verification_status: VerificationStatus | str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[Member], int]:
@@ -91,11 +95,12 @@ def list_members(
         q=q,
         family_id=family_id,
         rm_id=rm_id,
+        can_status=can_status,
         kyc_status=kyc_status,
-        payeezz_status=payeezz_status,
-        mobile_status=mobile_status,
-        email_status=email_status,
-        nominee_status=nominee_status,
+        payeezz_mandate_status=payeezz_mandate_status,
+        mobile_verification_status=mobile_verification_status,
+        email_verification_status=email_verification_status,
+        nominee_verification_status=nominee_verification_status,
     )
     total = db.scalar(select(func.count(Member.id)).join(Member.family).where(*filters)) or 0
     items = list(
@@ -124,7 +129,14 @@ def get_active_member(db: Session, member_id: UUID, user: User) -> Member | None
     )
 
 
-def find_active_member_by_can(db: Session, can_number: str, *, exclude_member_id: UUID | None = None) -> Member | None:
+def find_active_member_by_can(
+    db: Session,
+    can_number: str | None,
+    *,
+    exclude_member_id: UUID | None = None,
+) -> Member | None:
+    if can_number is None:
+        return None
     filters = [Member.can_number == can_number, Member.deleted_at.is_(None)]
     if exclude_member_id is not None:
         filters.append(Member.id != exclude_member_id)

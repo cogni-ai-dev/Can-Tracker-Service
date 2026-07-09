@@ -9,7 +9,7 @@ Procedure:
 ```bash
 openssl rand -hex 32
 vi .env
-docker compose --env-file .env -f docker/can-tracker-service/docker-compose.yml up -d api
+docker compose -f docker/can-tracker-service/docker-compose.yml up -d can-tracker-service
 ```
 
 After rotation, all users must log in again.

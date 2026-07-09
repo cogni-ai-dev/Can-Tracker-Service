@@ -20,6 +20,8 @@ from app.models.user import User
 from app.schemas.reports import ReportExportResult, ReportListFilters
 from app.services.report_renderers import render_report
 
+UNASSIGNED_RM_NAME = "Unassigned"
+
 
 @dataclass(frozen=True)
 class ReportQueryResult:
@@ -109,14 +111,14 @@ def _family_filters(*, actor: User, filters: ReportListFilters) -> list[object]:
 
 def _report_member_filters(report_type: ReportType) -> list[object]:
     if report_type == ReportType.KYC_PENDING:
-        return [Member.kyc_status != KycStatus.VALIDATED.value]
+        return [Member.kyc_status != KycStatus.VERIFIED.value]
     if report_type == ReportType.PAYEEZZ_PENDING:
-        return [Member.payeezz_status != PayeezzStatus.AGGREGATOR_ACCEPTED.value]
+        return [Member.payeezz_mandate_status != PayeezzStatus.APPROVED.value]
     if report_type == ReportType.CONTACT_PENDING:
         return [
-            (Member.mobile_status == VerificationStatus.NOT_VERIFIED.value)
-            | (Member.email_status == VerificationStatus.NOT_VERIFIED.value)
-            | (Member.nominee_status == VerificationStatus.NOT_VERIFIED.value)
+            (Member.mobile_verification_status == VerificationStatus.PENDING_VERIFICATION.value)
+            | (Member.email_verification_status == VerificationStatus.PENDING_VERIFICATION.value)
+            | (Member.nominee_verification_status == VerificationStatus.PENDING_VERIFICATION.value)
         ]
     return []
 
@@ -127,19 +129,20 @@ def _member_row(member: Member) -> dict[str, Any]:
     return {
         "name": member.name,
         "can_number": member.can_number,
+        "can_status": member.can_status,
         "pan_masked": member.pan_masked,
         "date_of_birth": member.date_of_birth,
         "kyc_status": member.kyc_status,
-        "mobile_status": member.mobile_status,
-        "email_status": member.email_status,
-        "nominee_status": member.nominee_status,
-        "payeezz_status": member.payeezz_status,
+        "mobile_verification_status": member.mobile_verification_status,
+        "email_verification_status": member.email_verification_status,
+        "nominee_verification_status": member.nominee_verification_status,
+        "payeezz_mandate_status": member.payeezz_mandate_status,
         "bank_name": member.bank_name,
         "bank_account_number_masked": member.bank_account_number_masked,
         "ifsc_code": member.ifsc_code,
         "family_head_name": family.family_head_name,
         "family_code": family.family_code,
-        "rm_name": rm.name,
+        "rm_name": rm.name if rm is not None else UNASSIGNED_RM_NAME,
         "last_updated_at": _as_utc(member.updated_at),
     }
 
@@ -154,7 +157,7 @@ def _family_row(family: Family) -> dict[str, Any]:
     return {
         "family_head_name": family.family_head_name,
         "family_code": family.family_code,
-        "rm_name": family.primary_rm.name,
+        "rm_name": family.primary_rm.name if family.primary_rm is not None else UNASSIGNED_RM_NAME,
         "members": completion.total_members,
         "kyc_percentage": completion.kyc_completion_pct,
         "payeezz_percentage": completion.payeezz_completion_pct,
@@ -226,16 +229,16 @@ def _rm_task_rows(
     offset: int,
 ) -> tuple[list[dict[str, Any]], int]:
     conditions = _member_filters(actor=actor, filters=filters)
-    kyc_count = _count_when(Member.kyc_status.in_([KycStatus.REGISTERED.value, KycStatus.NO_KYC.value]))
-    payeezz_count = _count_when(Member.payeezz_status != PayeezzStatus.AGGREGATOR_ACCEPTED.value)
-    mobile_count = _count_when(Member.mobile_status == VerificationStatus.NOT_VERIFIED.value)
-    email_count = _count_when(Member.email_status == VerificationStatus.NOT_VERIFIED.value)
-    nominee_count = _count_when(Member.nominee_status == VerificationStatus.NOT_VERIFIED.value)
+    kyc_count = _count_when(Member.kyc_status.in_([KycStatus.PENDING_REKYC.value, KycStatus.NOT_STARTED.value]))
+    payeezz_count = _count_when(Member.payeezz_mandate_status != PayeezzStatus.APPROVED.value)
+    mobile_count = _count_when(Member.mobile_verification_status == VerificationStatus.PENDING_VERIFICATION.value)
+    email_count = _count_when(Member.email_verification_status == VerificationStatus.PENDING_VERIFICATION.value)
+    nominee_count = _count_when(Member.nominee_verification_status == VerificationStatus.PENDING_VERIFICATION.value)
     total_count = kyc_count + payeezz_count + mobile_count + email_count + nominee_count
 
     grouped = (
         select(
-            User.name.label("rm_name"),
+            func.coalesce(User.name, UNASSIGNED_RM_NAME).label("rm_name"),
             kyc_count.label("kyc_count"),
             payeezz_count.label("payeezz_count"),
             mobile_count.label("mobile_count"),
@@ -245,11 +248,11 @@ def _rm_task_rows(
         )
         .select_from(Member)
         .join(Member.family)
-        .join(User, Family.primary_rm_id == User.id)
+        .outerjoin(User, Family.primary_rm_id == User.id)
         .where(*conditions)
-        .group_by(User.id, User.name)
+        .group_by(Family.primary_rm_id, User.name)
         .having(total_count > 0)
-        .order_by(User.name, User.id)
+        .order_by(func.coalesce(User.name, UNASSIGNED_RM_NAME), Family.primary_rm_id)
     )
     grouped_subquery = grouped.subquery()
     total = db.scalar(select(func.count()).select_from(grouped_subquery)) or 0

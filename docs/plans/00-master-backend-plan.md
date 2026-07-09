@@ -26,26 +26,26 @@ Use these exact enum labels in database constraints, API validation, imports, re
 
 ### KYC Status
 
-- `Validated`: compliant.
-- `Registered`: re-KYC pending.
-- `No KYC`: KYC pending.
+- `Verified`: compliant.
+- `Pending Re-KYC`: re-KYC pending.
+- `Not Started`: KYC pending.
 
-KYC pending means `Registered` plus `No KYC`.
+KYC pending means `Pending Re-KYC` plus `Not Started`.
 
 ### Verification Status
 
 - `Verified`
-- `Not Verified`
+- `Pending Verification`
 
 This enum applies to mobile verification, email verification, and nominee verification.
 
 ### PayEezz Status
 
-- `Not Available`
-- `Sent for Approval`
-- `Aggregator Accepted`
+- `Not Started`
+- `Pending Approval`
+- `Approved`
 
-PayEezz pending means `Not Available` plus `Sent for Approval`.
+PayEezz pending means `Not Started` plus `Pending Approval`.
 
 ### Task Types
 

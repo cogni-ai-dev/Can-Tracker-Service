@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
 
-import { Badge, Card, EmptyState, PageHeader } from '../../components/ui';
+import { Badge, Card, ConfirmActionDialog, EmptyState, PageHeader } from '../../components/ui';
 import { usersApi } from '../../lib/api';
 import { canAdministerUserModule, canManageUsers, canRoleToUserRole, effectiveMemberships } from '../../lib/access';
 import type { CurrentUser, ModuleCode, ModuleRole, UserMembership, UserPayload, UserRecord, UserRole } from '../../types';
@@ -34,7 +34,7 @@ const roleGuideItems: Array<{ title: string; detail: string }> = [
   },
   {
     title: 'CAN Ops',
-    detail: 'Create, edit, delete, import, and report across CAN records. No user management or audit logs.',
+    detail: 'Create, edit, import, and report across CAN records. No delete, user management, or audit logs.',
   },
   {
     title: 'CAN RM',
@@ -56,7 +56,7 @@ const roleGuideItems: Array<{ title: string; detail: string }> = [
 
 const userRoleHelpText: Record<UserRole, string> = {
   admin: 'Platform admin maps to CAN Admin and can administer the full platform.',
-  ops: 'CAN Ops maps to operational CAN write access without user or audit administration.',
+  ops: 'CAN Ops maps to operational CAN write access without delete, user, or audit administration.',
   rm: 'Relationship Manager maps to CAN RM and is limited to assigned-family remarks updates.',
   management: 'Management maps to read-only CAN access, or a CRM-only user when no CAN role is selected.',
 };
@@ -83,6 +83,8 @@ export function AdminModule({ user }: { user: CurrentUser }) {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<UserModalState>(null);
+  const [deactivateTarget, setDeactivateTarget] = useState<UserRecord | null>(null);
+  const [deactivateBusy, setDeactivateBusy] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
 
   useEffect(() => {
@@ -120,18 +122,26 @@ export function AdminModule({ user }: { user: CurrentUser }) {
     setRefreshToken((value) => value + 1);
   }
 
-  async function deactivate(target: UserRecord) {
+  function requestDeactivate(target: UserRecord) {
     if (target.id === user.id) {
       setMessage('You cannot deactivate your own account.');
       return;
     }
-    if (!window.confirm(`Deactivate ${target.name}?`)) return;
+    setDeactivateTarget(target);
+  }
+
+  async function deactivate() {
+    if (!deactivateTarget) return;
+    setDeactivateBusy(true);
     try {
-      await usersApi.deactivate(target.id);
+      await usersApi.deactivate(deactivateTarget.id);
       setMessage('User deactivated.');
+      setDeactivateTarget(null);
       refresh();
     } catch (error) {
       setMessage(friendlyError(error));
+    } finally {
+      setDeactivateBusy(false);
     }
   }
 
@@ -219,7 +229,7 @@ export function AdminModule({ user }: { user: CurrentUser }) {
                           <Pencil size={13} /> Edit
                         </button>
                         {item.id !== user.id && item.is_active && (
-                          <button type="button" onClick={() => deactivate(item)} className="inline-flex items-center gap-1 rounded-md border border-rose-200 px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50">
+                          <button type="button" onClick={() => requestDeactivate(item)} className="inline-flex items-center gap-1 rounded-md border border-rose-200 px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50">
                             <Trash2 size={13} /> Deactivate
                           </button>
                         )}
@@ -248,6 +258,16 @@ export function AdminModule({ user }: { user: CurrentUser }) {
             setMessage(modal.mode === 'edit' ? 'User updated.' : 'User created.');
             refresh();
           }}
+        />
+      )}
+      {deactivateTarget && (
+        <ConfirmActionDialog
+          title="Deactivate User"
+          message={`Deactivate ${deactivateTarget.name}? This user will lose access until an admin reactivates the account.`}
+          confirmLabel="Deactivate User"
+          busy={deactivateBusy}
+          onCancel={() => setDeactivateTarget(null)}
+          onConfirm={deactivate}
         />
       )}
     </div>

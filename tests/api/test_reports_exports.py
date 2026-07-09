@@ -145,8 +145,8 @@ async def test_report_exports_mask_sensitive_values_in_preview_and_csv(
             can_number="CAN-MASK",
             pan="ABCDE1234F",
             bank_account_number="001122334455",
-            kyc_status="Registered",
-            payeezz_status="Not Available",
+            kyc_status="Pending Re-KYC",
+            payeezz_mandate_status="Not Started",
         )
         preview = await client.get("/api/v1/reports/payeezz_pending/preview")
         csv_response = await client.get("/api/v1/reports/payeezz_pending/export?format=csv")
@@ -160,6 +160,39 @@ async def test_report_exports_mask_sensitive_values_in_preview_and_csv(
     assert "bank account ending 4455" in exported_text
     assert "001122334455" not in exported_text
     assert "ABCDE1234F" not in exported_text
+
+
+@pytest.mark.asyncio
+async def test_reports_render_unassigned_family_rm_name(
+    test_settings: Settings,
+    db_engine,
+    db_session: Session,
+) -> None:
+    admin = create_test_user(db_session, email="admin@example.test", role=UserRole.ADMIN)
+
+    async with client_for(test_settings) as client:
+        assert (await login(client, admin.email)).status_code == 200
+        family_response = await client.post(
+            "/api/v1/families",
+            json={"family_head_name": "Unassigned Report Head"},
+        )
+        family = family_response.json()
+        await create_member(
+            client,
+            family_id=family["id"],
+            can_number="CAN-UNASSIGNED-REPORT",
+            pan="ABCDE1234F",
+            kyc_status="Not Started",
+            payeezz_mandate_status="Not Started",
+        )
+        full_preview = await client.get("/api/v1/reports/full/preview")
+        family_preview = await client.get("/api/v1/reports/family_compliance/preview")
+        rm_tasks_preview = await client.get("/api/v1/reports/rm_tasks/preview")
+
+    assert full_preview.status_code == 200, full_preview.text
+    assert full_preview.json()["items"][0]["rm_name"] == "Unassigned"
+    assert family_preview.json()["items"][0]["rm_name"] == "Unassigned"
+    assert rm_tasks_preview.json()["items"][0]["rm_name"] == "Unassigned"
 
 
 @pytest.mark.asyncio

@@ -29,7 +29,7 @@ class ReportDefinition:
 
 
 def kyc_pending_filter(member: Any) -> bool:
-    return active(member) and value(member, "kyc_status", "kyc") != KycStatus.VALIDATED.value
+    return active(member) and value(member, "kyc_status", "kyc") != KycStatus.VERIFIED.value
 
 
 def payeezz_pending_filter(member: Any) -> bool:
@@ -37,10 +37,10 @@ def payeezz_pending_filter(member: Any) -> bool:
         active(member)
         and value(
             member,
-            "payeezz_status",
+            "payeezz_mandate_status",
             "payeezz",
         )
-        != PayeezzStatus.AGGREGATOR_ACCEPTED.value
+        != PayeezzStatus.APPROVED.value
     )
 
 
@@ -48,9 +48,9 @@ def contact_pending_filter(member: Any) -> bool:
     if not active(member):
         return False
     return (
-        value(member, "mobile_status", "mobile") == VerificationStatus.NOT_VERIFIED.value
-        or value(member, "email_status", "email") == VerificationStatus.NOT_VERIFIED.value
-        or value(member, "nominee_status", "nominee") == VerificationStatus.NOT_VERIFIED.value
+        value(member, "mobile_verification_status", "mobile") == VerificationStatus.PENDING_VERIFICATION.value
+        or value(member, "email_verification_status", "email") == VerificationStatus.PENDING_VERIFICATION.value
+        or value(member, "nominee_verification_status", "nominee") == VerificationStatus.PENDING_VERIFICATION.value
     )
 
 
@@ -99,12 +99,13 @@ REPORT_DEFINITIONS: dict[str, ReportDefinition] = {
     ReportType.KYC_PENDING.value: ReportDefinition(
         report_type=ReportType.KYC_PENDING.value,
         title="KYC Pending Report",
-        description="Active members where KYC is Registered or No KYC.",
+        description="Active members where KYC is Pending Re-KYC or Not Started.",
         scope="members",
         filter_name="kyc_pending_filter",
         columns=(
             ReportColumn("name", "Name"),
             ReportColumn("can_number", "CAN"),
+            ReportColumn("can_status", "CAN status"),
             ReportColumn("pan_masked", "PAN masked"),
             ReportColumn("kyc_status", "KYC status"),
             ReportColumn("family_head_name", "Family head"),
@@ -118,13 +119,14 @@ REPORT_DEFINITIONS: dict[str, ReportDefinition] = {
     ReportType.PAYEEZZ_PENDING.value: ReportDefinition(
         report_type=ReportType.PAYEEZZ_PENDING.value,
         title="PayEezz Pending Report",
-        description="Active members without an accepted PayEezz mandate.",
+        description="Active members without an approved PayEezz mandate.",
         scope="members",
         filter_name="payeezz_pending_filter",
         columns=(
             ReportColumn("name", "Name"),
             ReportColumn("can_number", "CAN"),
-            ReportColumn("payeezz_status", "PayEezz status"),
+            ReportColumn("can_status", "CAN status"),
+            ReportColumn("payeezz_mandate_status", "PayEezz status"),
             ReportColumn("bank_name", "Bank name"),
             ReportColumn("bank_account_number_masked", "Account masked"),
             ReportColumn("family_head_name", "Family head"),
@@ -143,9 +145,10 @@ REPORT_DEFINITIONS: dict[str, ReportDefinition] = {
         columns=(
             ReportColumn("name", "Name"),
             ReportColumn("can_number", "CAN"),
-            ReportColumn("mobile_status", "Mobile status"),
-            ReportColumn("email_status", "Email status"),
-            ReportColumn("nominee_status", "Nominee status"),
+            ReportColumn("can_status", "CAN status"),
+            ReportColumn("mobile_verification_status", "Mobile status"),
+            ReportColumn("email_verification_status", "Email status"),
+            ReportColumn("nominee_verification_status", "Nominee status"),
             ReportColumn("family_head_name", "Family head"),
             ReportColumn("family_code", "Family code"),
             ReportColumn("rm_name", "RM"),
@@ -200,13 +203,14 @@ REPORT_DEFINITIONS: dict[str, ReportDefinition] = {
         columns=(
             ReportColumn("name", "Name"),
             ReportColumn("can_number", "CAN"),
+            ReportColumn("can_status", "CAN status"),
             ReportColumn("pan_masked", "PAN masked"),
             ReportColumn("date_of_birth", "DOB"),
             ReportColumn("kyc_status", "KYC"),
-            ReportColumn("mobile_status", "Mobile status"),
-            ReportColumn("email_status", "Email status"),
-            ReportColumn("nominee_status", "Nominee status"),
-            ReportColumn("payeezz_status", "PayEezz"),
+            ReportColumn("mobile_verification_status", "Mobile status"),
+            ReportColumn("email_verification_status", "Email status"),
+            ReportColumn("nominee_verification_status", "Nominee status"),
+            ReportColumn("payeezz_mandate_status", "PayEezz"),
             ReportColumn("bank_name", "Bank name"),
             ReportColumn("ifsc_code", "IFSC"),
             ReportColumn("family_head_name", "Family head"),

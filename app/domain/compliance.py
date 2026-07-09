@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
-from app.domain.enums import KycStatus, PayeezzStatus, VerificationStatus
+from app.domain.enums import CanStatus, KycStatus, PayeezzStatus, VerificationStatus
 from app.domain.records import active, value
 
 
@@ -18,9 +18,9 @@ class CountPercentage:
 @dataclass(frozen=True)
 class KycMetrics:
     total_members: int
-    validated: CountPercentage
-    registered: CountPercentage
-    no_kyc: CountPercentage
+    verified: CountPercentage
+    pending_rekyc: CountPercentage
+    not_started: CountPercentage
     pending: CountPercentage
     completion: CountPercentage
 
@@ -28,9 +28,9 @@ class KycMetrics:
 @dataclass(frozen=True)
 class PayeezzMetrics:
     total_members: int
-    aggregator_accepted: CountPercentage
-    sent_for_approval: CountPercentage
-    not_available: CountPercentage
+    approved: CountPercentage
+    pending_approval: CountPercentage
+    not_started: CountPercentage
     pending: CountPercentage
     completion: CountPercentage
 
@@ -39,7 +39,7 @@ class PayeezzMetrics:
 class VerificationMetrics:
     total_members: int
     verified: CountPercentage
-    not_verified: CountPercentage
+    pending_verification: CountPercentage
     completion: CountPercentage
     pending: CountPercentage
 
@@ -103,49 +103,49 @@ def _count_status(members: tuple[Any, ...], canonical_name: str, frontend_name: 
 def kyc_counts(members: Iterable[Any]) -> KycMetrics:
     records = _members_tuple(members)
     total = len(records)
-    validated = _count_status(records, "kyc_status", "kyc", KycStatus.VALIDATED.value)
-    registered = _count_status(records, "kyc_status", "kyc", KycStatus.REGISTERED.value)
-    no_kyc = _count_status(records, "kyc_status", "kyc", KycStatus.NO_KYC.value)
-    pending = registered + no_kyc
+    verified = _count_status(records, "kyc_status", "kyc", KycStatus.VERIFIED.value)
+    pending_rekyc = _count_status(records, "kyc_status", "kyc", KycStatus.PENDING_REKYC.value)
+    not_started = _count_status(records, "kyc_status", "kyc", KycStatus.NOT_STARTED.value)
+    pending = pending_rekyc + not_started
     return KycMetrics(
         total_members=total,
-        validated=count_percentage(validated, total),
-        registered=count_percentage(registered, total),
-        no_kyc=count_percentage(no_kyc, total),
+        verified=count_percentage(verified, total),
+        pending_rekyc=count_percentage(pending_rekyc, total),
+        not_started=count_percentage(not_started, total),
         pending=count_percentage(pending, total),
-        completion=count_percentage(validated, total),
+        completion=count_percentage(verified, total),
     )
 
 
 def payeezz_counts(members: Iterable[Any]) -> PayeezzMetrics:
     records = _members_tuple(members)
     total = len(records)
-    accepted = _count_status(
+    approved = _count_status(
         records,
-        "payeezz_status",
+        "payeezz_mandate_status",
         "payeezz",
-        PayeezzStatus.AGGREGATOR_ACCEPTED.value,
+        PayeezzStatus.APPROVED.value,
     )
-    sent = _count_status(
+    pending_approval = _count_status(
         records,
-        "payeezz_status",
+        "payeezz_mandate_status",
         "payeezz",
-        PayeezzStatus.SENT_FOR_APPROVAL.value,
+        PayeezzStatus.PENDING_APPROVAL.value,
     )
-    not_available = _count_status(
+    not_started = _count_status(
         records,
-        "payeezz_status",
+        "payeezz_mandate_status",
         "payeezz",
-        PayeezzStatus.NOT_AVAILABLE.value,
+        PayeezzStatus.NOT_STARTED.value,
     )
-    pending = sent + not_available
+    pending = pending_approval + not_started
     return PayeezzMetrics(
         total_members=total,
-        aggregator_accepted=count_percentage(accepted, total),
-        sent_for_approval=count_percentage(sent, total),
-        not_available=count_percentage(not_available, total),
+        approved=count_percentage(approved, total),
+        pending_approval=count_percentage(pending_approval, total),
+        not_started=count_percentage(not_started, total),
         pending=count_percentage(pending, total),
-        completion=count_percentage(accepted, total),
+        completion=count_percentage(approved, total),
     )
 
 
@@ -162,31 +162,31 @@ def verification_counts(
         frontend_name,
         VerificationStatus.VERIFIED.value,
     )
-    not_verified = _count_status(
+    pending_verification = _count_status(
         records,
         canonical_name,
         frontend_name,
-        VerificationStatus.NOT_VERIFIED.value,
+        VerificationStatus.PENDING_VERIFICATION.value,
     )
     return VerificationMetrics(
         total_members=total,
         verified=count_percentage(verified, total),
-        not_verified=count_percentage(not_verified, total),
+        pending_verification=count_percentage(pending_verification, total),
         completion=count_percentage(verified, total),
-        pending=count_percentage(not_verified, total),
+        pending=count_percentage(pending_verification, total),
     )
 
 
 def mobile_verification_counts(members: Iterable[Any]) -> VerificationMetrics:
-    return verification_counts(members, "mobile_status", "mobile")
+    return verification_counts(members, "mobile_verification_status", "mobile")
 
 
 def email_verification_counts(members: Iterable[Any]) -> VerificationMetrics:
-    return verification_counts(members, "email_status", "email")
+    return verification_counts(members, "email_verification_status", "email")
 
 
 def nominee_verification_counts(members: Iterable[Any]) -> VerificationMetrics:
-    return verification_counts(members, "nominee_status", "nominee")
+    return verification_counts(members, "nominee_verification_status", "nominee")
 
 
 def family_completion(members: Iterable[Any]) -> FamilyCompletion:
@@ -198,7 +198,12 @@ def family_completion(members: Iterable[Any]) -> FamilyCompletion:
     nominee = nominee_verification_counts(records)
     return FamilyCompletion(
         total_members=len(records),
-        total_cans=len(records),
+        total_cans=sum(
+            1
+            for member in records
+            if value(member, "can_status", default=None) == CanStatus.AVAILABLE.value
+            and value(member, "can_number", default=None)
+        ),
         kyc_completion=kyc.completion,
         payeezz_completion=payeezz.completion,
         mobile_verification=mobile.completion,

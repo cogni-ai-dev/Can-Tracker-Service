@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.domain.enums import KycStatus, PayeezzStatus, VerificationStatus
+from app.domain.enums import CanStatus, KycStatus, PayeezzStatus, VerificationStatus
 from app.schemas.common import CountPercentageRead, UserSummary
 
 
@@ -31,15 +31,15 @@ class FamilyStatusFilter(str, Enum):
 
 
 class FamilyCreate(BaseModel):
-    family_code: str = Field(min_length=1, max_length=64)
+    family_code: str | None = Field(default=None, max_length=64)
     family_head_name: str = Field(min_length=1, max_length=200)
-    primary_rm_id: UUID
+    primary_rm_id: UUID | None = None
     remarks: str | None = Field(default=None, max_length=5000)
 
     @field_validator("family_code")
     @classmethod
-    def validate_family_code(cls, value: str) -> str:
-        return non_blank(value, "Family code")
+    def validate_family_code(cls, value: str | None) -> str | None:
+        return optional_stripped(value)
 
     @field_validator("family_head_name")
     @classmethod
@@ -77,7 +77,7 @@ class FamilyUpdate(BaseModel):
     def require_update_field(self) -> "FamilyUpdate":
         if not self.model_fields_set:
             raise ValueError("At least one field must be provided.")
-        for field_name in ("family_code", "family_head_name", "primary_rm_id"):
+        for field_name in ("family_code", "family_head_name"):
             if field_name in self.model_fields_set and getattr(self, field_name) is None:
                 raise ValueError(f"{field_name} cannot be null.")
         return self
@@ -89,7 +89,7 @@ class FamilyRead(BaseModel):
     id: UUID
     family_code: str
     family_head_name: str
-    primary_rm: UserSummary
+    primary_rm: UserSummary | None
     total_members: int
     total_cans: int
     last_updated_at: datetime
@@ -119,11 +119,12 @@ class FamilyListFilters(BaseModel):
     q: str | None = None
     rm_id: UUID | None = None
     status_filter: FamilyStatusFilter = FamilyStatusFilter.ALL
+    can_status: CanStatus | None = None
     kyc_status: KycStatus | None = None
-    payeezz_status: PayeezzStatus | None = None
-    mobile_status: VerificationStatus | None = None
-    email_status: VerificationStatus | None = None
-    nominee_status: VerificationStatus | None = None
+    payeezz_mandate_status: PayeezzStatus | None = None
+    mobile_verification_status: VerificationStatus | None = None
+    email_verification_status: VerificationStatus | None = None
+    nominee_verification_status: VerificationStatus | None = None
     limit: int = Field(default=50, ge=1, le=500)
     offset: int = Field(default=0, ge=0)
     sort: str = "family_head_name"

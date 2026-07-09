@@ -59,17 +59,17 @@ Every export creates a `report_exports` row. The audit log can optionally includ
 
 `kyc_pending`:
 
-- Filter: active members where `kyc_status != Validated`.
+- Filter: active members where `kyc_status != Verified`.
 - Columns: name, CAN, PAN masked, KYC status, family head, family code, RM, last updated.
 
 `payeezz_pending`:
 
-- Filter: active members where `payeezz_status != Aggregator Accepted`.
+- Filter: active members where `payeezz_mandate_status != Approved`.
 - Columns: name, CAN, PayEezz status, bank name, account masked, family head, family code, RM.
 
 `contact_pending`:
 
-- Filter: active members where mobile, email, or nominee status is `Not Verified`.
+- Filter: active members where mobile, email, or nominee status is `Pending Verification`.
 - Columns: name, CAN, mobile status, email status, nominee status, family head, family code, RM.
 
 `family_compliance`:

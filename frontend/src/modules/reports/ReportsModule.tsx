@@ -9,7 +9,7 @@ const reportDefinitions: Array<{ type: ReportType; name: string; description: st
   {
     type: 'kyc_pending',
     name: 'KYC Pending Report',
-    description: 'Clients with No KYC or Re-KYC pending status.',
+    description: 'Clients with Not Started or Re-KYC pending status.',
   },
   {
     type: 'payeezz_pending',

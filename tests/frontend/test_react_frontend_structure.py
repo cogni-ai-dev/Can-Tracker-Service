@@ -130,7 +130,7 @@ def test_react_admin_explains_role_access() -> None:
     required_text = [
         "Role Access",
         "Full CAN access, user management, audit logs, imports, and sensitive values.",
-        "Create, edit, delete, import, and report across CAN records. No user management or audit logs.",
+        "Create, edit, import, and report across CAN records. No delete, user management, or audit logs.",
         "Assigned families only, with remarks-only updates.",
         "Read-only CAN dashboards, records, tasks, and reports.",
         "Can manage CRM users and CRM module access.",

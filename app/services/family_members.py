@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
@@ -40,6 +41,8 @@ PII_FIELD_ATTRS = {
         "bank_account_number_search_hash",
     ),
 }
+GENERATED_FAMILY_CODE_PREFIX = "FAM"
+GENERATED_FAMILY_CODE_RE = re.compile(r"^FAM-\d{8}-(\d{4})$")
 
 
 def _utc_now() -> datetime:
@@ -151,18 +154,19 @@ def _member_audit_values(member: Member, settings: Settings) -> dict[str, object
     return {
         "name": member.name,
         "can_number": member.can_number,
+        "can_status": member.can_status,
         "pan": _decrypt_member_field(member, PAN_FIELD, settings),
         "date_of_birth": member.date_of_birth,
         "kyc_status": member.kyc_status,
         "mobile": _decrypt_member_field(member, MOBILE_FIELD, settings),
-        "mobile_status": member.mobile_status,
+        "mobile_verification_status": member.mobile_verification_status,
         "email": _decrypt_member_field(member, EMAIL_FIELD, settings),
-        "email_status": member.email_status,
-        "nominee_status": member.nominee_status,
+        "email_verification_status": member.email_verification_status,
+        "nominee_verification_status": member.nominee_verification_status,
         "bank_name": member.bank_name,
         "bank_account_number": _decrypt_member_field(member, BANK_ACCOUNT_NUMBER_FIELD, settings),
         "ifsc_code": member.ifsc_code,
-        "payeezz_status": member.payeezz_status,
+        "payeezz_mandate_status": member.payeezz_mandate_status,
         "payeezz_amount": member.payeezz_amount,
         "payeezz_start_date": member.payeezz_start_date,
         "remarks": member.remarks,
@@ -184,18 +188,19 @@ def _member_to_response_data(
         "family_id": member.family_id,
         "name": member.name,
         "can_number": member.can_number,
+        "can_status": member.can_status,
         "pan_masked": member.pan_masked,
         "date_of_birth": member.date_of_birth,
         "kyc_status": member.kyc_status,
         "mobile_masked": member.mobile_masked,
-        "mobile_status": member.mobile_status,
+        "mobile_verification_status": member.mobile_verification_status,
         "email_masked": member.email_masked,
-        "email_status": member.email_status,
-        "nominee_status": member.nominee_status,
+        "email_verification_status": member.email_verification_status,
+        "nominee_verification_status": member.nominee_verification_status,
         "bank_name": member.bank_name,
         "bank_account_number_masked": member.bank_account_number_masked,
         "ifsc_code": member.ifsc_code,
-        "payeezz_status": member.payeezz_status,
+        "payeezz_mandate_status": member.payeezz_mandate_status,
         "payeezz_amount": member.payeezz_amount,
         "payeezz_start_date": member.payeezz_start_date,
         "remarks": member.remarks,
@@ -255,7 +260,9 @@ def _ensure_member_update_allowed(actor: User, family: Family, payload: MemberUp
     _forbidden()
 
 
-def _ensure_active_rm(db: Session, rm_id: UUID) -> User:
+def _ensure_active_rm(db: Session, rm_id: UUID | None) -> User | None:
+    if rm_id is None:
+        return None
     rm = db.get(User, rm_id)
     if (
         rm is None
@@ -277,9 +284,30 @@ def _ensure_family_code_available(db: Session, family_code: str, existing_family
         _conflict("family_code_already_exists", "An active family with this family_code already exists.")
 
 
-def _ensure_can_available(db: Session, can_number: str, existing_member_id: UUID | None = None) -> None:
+def generate_family_code(db: Session, *, now: datetime | None = None) -> str:
+    creation_time = now or _utc_now()
+    date_stamp = creation_time.strftime("%Y%m%d")
+    prefix = f"{GENERATED_FAMILY_CODE_PREFIX}-{date_stamp}-"
+    highest_sequence = 0
+    for code in family_repo.list_family_codes_with_prefix(db, prefix):
+        match = GENERATED_FAMILY_CODE_RE.match(code)
+        if match:
+            highest_sequence = max(highest_sequence, int(match.group(1)))
+    return f"{prefix}{highest_sequence + 1:04d}"
+
+
+def _ensure_can_available(db: Session, can_number: str | None, existing_member_id: UUID | None = None) -> None:
+    if can_number is None:
+        return
     if member_repo.find_active_member_by_can(db, can_number, exclude_member_id=existing_member_id) is not None:
         _conflict("can_number_already_exists", "An active member with this can_number already exists.")
+
+
+def _ensure_member_can_state(member: Member) -> None:
+    if member.can_number is None and member.can_status != "Pending":
+        _validation_error("can_status must be Pending when can_number is blank.")
+    if member.can_number is not None and member.can_status != "Available":
+        _validation_error("can_status must be Available when can_number is present.")
 
 
 def list_family_records(
@@ -296,11 +324,12 @@ def list_family_records(
         q=filters.q,
         rm_id=filters.rm_id,
         status_filter=filters.status_filter.value,
+        can_status=filters.can_status,
         kyc_status=filters.kyc_status,
-        payeezz_status=filters.payeezz_status,
-        mobile_status=filters.mobile_status,
-        email_status=filters.email_status,
-        nominee_status=filters.nominee_status,
+        payeezz_mandate_status=filters.payeezz_mandate_status,
+        mobile_verification_status=filters.mobile_verification_status,
+        email_verification_status=filters.email_verification_status,
+        nominee_verification_status=filters.nominee_verification_status,
         limit=filters.limit,
         offset=filters.offset,
         sort=filters.sort,
@@ -328,9 +357,10 @@ def create_family_record(
     request_id: str | None,
 ) -> dict[str, Any]:
     _ensure_active_rm(db, payload.primary_rm_id)
-    _ensure_family_code_available(db, payload.family_code)
+    family_code = payload.family_code or generate_family_code(db)
+    _ensure_family_code_available(db, family_code)
     family = Family(
-        family_code=payload.family_code,
+        family_code=family_code,
         family_head_name=payload.family_head_name,
         primary_rm_id=payload.primary_rm_id,
         remarks=payload.remarks,
@@ -451,11 +481,12 @@ def list_member_records(
         q=filters.q,
         family_id=filters.family_id,
         rm_id=filters.rm_id,
+        can_status=filters.can_status,
         kyc_status=filters.kyc_status,
-        payeezz_status=filters.payeezz_status,
-        mobile_status=filters.mobile_status,
-        email_status=filters.email_status,
-        nominee_status=filters.nominee_status,
+        payeezz_mandate_status=filters.payeezz_mandate_status,
+        mobile_verification_status=filters.mobile_verification_status,
+        email_verification_status=filters.email_verification_status,
+        nominee_verification_status=filters.nominee_verification_status,
         limit=filters.limit,
         offset=filters.offset,
     )
@@ -532,6 +563,8 @@ def _apply_member_payload(member: Member, payload: MemberCreate | MemberUpdate, 
         member.name = payload.name
     if "can_number" in fields:
         member.can_number = payload.can_number
+    if "can_status" in fields or isinstance(payload, MemberCreate):
+        member.can_status = payload.can_status
     if "pan" in fields:
         _set_protected_member_field(member, PAN_FIELD, payload.pan, settings)
     if "date_of_birth" in fields:
@@ -540,22 +573,22 @@ def _apply_member_payload(member: Member, payload: MemberCreate | MemberUpdate, 
         member.kyc_status = payload.kyc_status
     if "mobile" in fields:
         _set_protected_member_field(member, MOBILE_FIELD, payload.mobile, settings)
-    if "mobile_status" in fields:
-        member.mobile_status = payload.mobile_status
+    if "mobile_verification_status" in fields:
+        member.mobile_verification_status = payload.mobile_verification_status
     if "email" in fields:
         _set_protected_member_field(member, EMAIL_FIELD, payload.email, settings)
-    if "email_status" in fields:
-        member.email_status = payload.email_status
-    if "nominee_status" in fields:
-        member.nominee_status = payload.nominee_status
+    if "email_verification_status" in fields:
+        member.email_verification_status = payload.email_verification_status
+    if "nominee_verification_status" in fields:
+        member.nominee_verification_status = payload.nominee_verification_status
     if "bank_name" in fields:
         member.bank_name = payload.bank_name
     if "bank_account_number" in fields:
         _set_protected_member_field(member, BANK_ACCOUNT_NUMBER_FIELD, payload.bank_account_number, settings)
     if "ifsc_code" in fields:
         member.ifsc_code = payload.ifsc_code
-    if "payeezz_status" in fields:
-        member.payeezz_status = payload.payeezz_status
+    if "payeezz_mandate_status" in fields:
+        member.payeezz_mandate_status = payload.payeezz_mandate_status
     if "payeezz_amount" in fields:
         member.payeezz_amount = payload.payeezz_amount
     if "payeezz_start_date" in fields:
@@ -580,6 +613,7 @@ def create_member_record(
     member = Member(family_id=family.id)
     db.add(member)
     _apply_member_payload(member, payload, settings)
+    _ensure_member_can_state(member)
     db.flush()
     record_create(
         db,
@@ -618,6 +652,7 @@ def update_member_record(
     if "can_number" in payload.model_fields_set:
         _ensure_can_available(db, payload.can_number, existing_member_id=member.id)
     _apply_member_payload(member, payload, settings)
+    _ensure_member_can_state(member)
     db.flush()
     record_update(
         db,

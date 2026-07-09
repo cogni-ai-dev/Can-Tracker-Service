@@ -95,13 +95,13 @@ KYC page:
 
 PayEezz page:
 
-- `GET /api/v1/members?payeezz_status=...`
+- `GET /api/v1/members?payeezz_mandate_status=...`
 
 Contact page:
 
-- `GET /api/v1/members?mobile_status=...`
-- `GET /api/v1/members?email_status=...`
-- `GET /api/v1/members?nominee_status=...`
+- `GET /api/v1/members?mobile_verification_status=...`
+- `GET /api/v1/members?email_verification_status=...`
+- `GET /api/v1/members?nominee_verification_status=...`
 
 Tasks page:
 

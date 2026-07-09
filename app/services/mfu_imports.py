@@ -26,6 +26,7 @@ from app.core.pii import (
 from app.domain.access import user_has_module_role
 from app.domain.enums import (
     AuditEntityType,
+    CanStatus,
     ChangeSource,
     ImportBatchStatus,
     ImportRowStatus,
@@ -46,12 +47,14 @@ from app.schemas.members import (
     normalize_email,
     normalize_ifsc,
     normalize_mobile,
+    normalize_optional_can_number,
     normalize_pan,
     validate_date_not_future,
 )
 from app.services.audit import record_create, record_import_commit, record_update
-from app.services.family_members import _member_audit_values
+from app.services.family_members import _member_audit_values, generate_family_code
 from app.services.mfu_gateway import (
+    REQUIRED_TEMPLATE_COLUMNS,
     TEMPLATE_COLUMNS,
     MfuMemberRecord,
     TemplateMfuGateway,
@@ -70,14 +73,14 @@ HEADER_TO_FIELD = {
     "DateOfBirth": "date_of_birth",
     "KYCStatus": "kyc_status",
     "Mobile": "mobile",
-    "MobileStatus": "mobile_status",
+    "MobileStatus": "mobile_verification_status",
     "Email": "email",
-    "EmailStatus": "email_status",
-    "NomineeStatus": "nominee_status",
+    "EmailStatus": "email_verification_status",
+    "NomineeStatus": "nominee_verification_status",
     "BankName": "bank_name",
     "AccountNumber": "bank_account_number",
     "IFSC": "ifsc_code",
-    "PayEezzStatus": "payeezz_status",
+    "PayEezzStatus": "payeezz_mandate_status",
     "PayEezzAmount": "payeezz_amount",
     "PayEezzStartDate": "payeezz_start_date",
     "Remarks": "remarks",
@@ -97,10 +100,8 @@ SENSITIVE_NORMALIZED_FIELDS = {
     "bank_account_number": BANK_ACCOUNT_NUMBER_FIELD,
 }
 REQUIRED_ROW_FIELD_HEADERS = (
-    "FamilyCode",
     "FamilyHeadName",
     "MemberName",
-    "CANNumber",
     "KYCStatus",
     "MobileStatus",
     "EmailStatus",
@@ -110,25 +111,26 @@ REQUIRED_ROW_FIELD_HEADERS = (
 
 MEMBER_MFU_FIELDS = (
     "member_name",
+    "can_status",
     "pan",
     "date_of_birth",
     "kyc_status",
     "mobile",
-    "mobile_status",
+    "mobile_verification_status",
     "email",
-    "email_status",
-    "nominee_status",
+    "email_verification_status",
+    "nominee_verification_status",
     "bank_name",
     "bank_account_number",
     "ifsc_code",
-    "payeezz_status",
+    "payeezz_mandate_status",
     "payeezz_amount",
     "payeezz_start_date",
 )
 
 
 @dataclass
-class ValidatedTemplateRow:
+class VerifiedTemplateRow:
     row_number: int
     raw_data: dict[str, str]
     normalized_data: dict[str, Any]
@@ -164,6 +166,8 @@ def _cell(record: MfuMemberRecord, header: str) -> str:
 
 def _optional_text(record: MfuMemberRecord, header: str) -> str | None:
     value = _cell(record, header)
+    if value.upper() == "NA":
+        return None
     return value or None
 
 
@@ -188,6 +192,25 @@ def _enum_value(
         errors.append(f"{header}: must be one of {allowed}.")
         return None
     return value
+
+
+def _normalized_status_value(
+    enum_cls: type[KycStatus] | type[VerificationStatus] | type[PayeezzStatus],
+    value: str | None,
+    header: str,
+    errors: list[str],
+    *,
+    default: str,
+    aliases: dict[str, str],
+) -> str:
+    if value is None or value.strip().upper() in {"", "NA"}:
+        return default
+    candidate = aliases.get(value.strip(), value.strip())
+    if candidate in enum_cls.values():
+        return candidate
+    allowed = ", ".join(enum_cls.values())
+    errors.append(f"{header}: must be one of {allowed}.")
+    return default
 
 
 def _parse_iso_date(value: str | None, header: str, errors: list[str], *, not_future: bool = False) -> str | None:
@@ -283,47 +306,76 @@ def _find_active_rm(db: Session, *, email: str | None, name: str | None, errors:
             errors.append("PrimaryRMName: must match exactly one active RM user.")
         return None
 
-    errors.append("PrimaryRMEmail or PrimaryRMName: one value is required.")
     return None
 
 
-def _validate_record(db: Session, record: MfuMemberRecord) -> ValidatedTemplateRow:
+def _validate_record(db: Session, record: MfuMemberRecord) -> VerifiedTemplateRow:
     errors: list[str] = []
-    family_code = _required_text(record, "FamilyCode", errors)
+    family_code = _optional_text(record, "FamilyCode")
     family_head_name = _required_text(record, "FamilyHeadName", errors)
     member_name = _required_text(record, "MemberName", errors)
-    raw_can_number = _required_text(record, "CANNumber", errors)
-    can_number = None
-    if raw_can_number is not None:
-        try:
-            can_number = normalize_can_number(raw_can_number)
-        except ValueError as exc:
-            errors.append(f"CANNumber: {exc}")
+    raw_can_number = _optional_text(record, "CANNumber")
+    try:
+        can_number = normalize_optional_can_number(raw_can_number)
+    except ValueError as exc:
+        errors.append(f"CANNumber: {exc}")
+        can_number = None
+    can_status = CanStatus.AVAILABLE.value if can_number is not None else CanStatus.PENDING.value
 
-    kyc_status = _enum_value(KycStatus, _required_text(record, "KYCStatus", errors), "KYCStatus", errors)
-    mobile_status = _enum_value(
+    kyc_status = _normalized_status_value(
+        KycStatus,
+        _optional_text(record, "KYCStatus"),
+        "KYCStatus",
+        errors,
+        default=KycStatus.NOT_STARTED.value,
+        aliases={
+            "Validated": KycStatus.VERIFIED.value,
+            "Registered": KycStatus.PENDING_REKYC.value,
+            "No KYC": KycStatus.NOT_STARTED.value,
+            "Choose 1": KycStatus.NOT_STARTED.value,
+        },
+    )
+    mobile_verification_status = _normalized_status_value(
         VerificationStatus,
-        _required_text(record, "MobileStatus", errors),
+        _optional_text(record, "MobileStatus"),
         "MobileStatus",
         errors,
+        default=VerificationStatus.PENDING_VERIFICATION.value,
+        aliases={
+            "Not Verified": VerificationStatus.PENDING_VERIFICATION.value,
+            "Choose": VerificationStatus.PENDING_VERIFICATION.value,
+        },
     )
-    email_status = _enum_value(
+    email_verification_status = _normalized_status_value(
         VerificationStatus,
-        _required_text(record, "EmailStatus", errors),
+        _optional_text(record, "EmailStatus"),
         "EmailStatus",
         errors,
+        default=VerificationStatus.PENDING_VERIFICATION.value,
+        aliases={"Not Verified": VerificationStatus.PENDING_VERIFICATION.value},
     )
-    nominee_status = _enum_value(
+    nominee_verification_status = _normalized_status_value(
         VerificationStatus,
-        _required_text(record, "NomineeStatus", errors),
+        _optional_text(record, "NomineeStatus"),
         "NomineeStatus",
         errors,
+        default=VerificationStatus.PENDING_VERIFICATION.value,
+        aliases={
+            "Not Verified": VerificationStatus.PENDING_VERIFICATION.value,
+            "Choose": VerificationStatus.PENDING_VERIFICATION.value,
+        },
     )
-    payeezz_status = _enum_value(
+    payeezz_mandate_status = _normalized_status_value(
         PayeezzStatus,
-        _required_text(record, "PayEezzStatus", errors),
+        _optional_text(record, "PayEezzStatus"),
         "PayEezzStatus",
         errors,
+        default=PayeezzStatus.NOT_STARTED.value,
+        aliases={
+            "Not Available": PayeezzStatus.NOT_STARTED.value,
+            "Sent for Approval": PayeezzStatus.PENDING_APPROVAL.value,
+            "Aggregator Accepted": PayeezzStatus.APPROVED.value,
+        },
     )
 
     primary_rm_email = _optional_text(record, "PrimaryRMEmail")
@@ -341,23 +393,24 @@ def _validate_record(db: Session, record: MfuMemberRecord) -> ValidatedTemplateR
         "family_remarks": _optional_text(record, "FamilyRemarks"),
         "member_name": member_name,
         "can_number": can_number,
+        "can_status": can_status,
         "pan": _normalize_optional(record, "PAN", normalize_pan, errors),
         "date_of_birth": _parse_iso_date(_optional_text(record, "DateOfBirth"), "DateOfBirth", errors, not_future=True),
         "kyc_status": kyc_status,
         "mobile": _normalize_optional(record, "Mobile", normalize_mobile, errors),
-        "mobile_status": mobile_status,
+        "mobile_verification_status": mobile_verification_status,
         "email": _normalize_optional(record, "Email", normalize_email, errors),
-        "email_status": email_status,
-        "nominee_status": nominee_status,
+        "email_verification_status": email_verification_status,
+        "nominee_verification_status": nominee_verification_status,
         "bank_name": _optional_text(record, "BankName"),
         "bank_account_number": _normalize_optional(record, "AccountNumber", normalize_bank_account_number, errors),
         "ifsc_code": _normalize_optional(record, "IFSC", normalize_ifsc, errors),
-        "payeezz_status": payeezz_status,
+        "payeezz_mandate_status": payeezz_mandate_status,
         "payeezz_amount": _parse_amount(_optional_text(record, "PayEezzAmount"), errors),
         "payeezz_start_date": _parse_iso_date(_optional_text(record, "PayEezzStartDate"), "PayEezzStartDate", errors),
         "remarks": _optional_text(record, "Remarks"),
     }
-    return ValidatedTemplateRow(
+    return VerifiedTemplateRow(
         row_number=record.row_number,
         raw_data={header: record.raw_data.get(header, "") for header in TEMPLATE_COLUMNS},
         normalized_data=normalized_data,
@@ -366,7 +419,7 @@ def _validate_record(db: Session, record: MfuMemberRecord) -> ValidatedTemplateR
     )
 
 
-def _apply_duplicate_can_errors(rows: list[ValidatedTemplateRow]) -> None:
+def _apply_duplicate_can_errors(rows: list[VerifiedTemplateRow]) -> None:
     can_counts: dict[str, int] = {}
     for row in rows:
         can_number = row.normalized_data.get("can_number")
@@ -379,21 +432,45 @@ def _apply_duplicate_can_errors(rows: list[ValidatedTemplateRow]) -> None:
             row.status = ImportRowStatus.ERROR
 
 
-def _apply_existing_record_status(db: Session, rows: list[ValidatedTemplateRow]) -> None:
+def _apply_existing_record_status(db: Session, rows: list[VerifiedTemplateRow]) -> None:
     for row in rows:
         if row.status == ImportRowStatus.ERROR:
             continue
-        family_code = row.normalized_data["family_code"]
+        family_code = row.normalized_data.get("family_code")
+        family_head_name = row.normalized_data["family_head_name"]
+        raw_primary_rm_id = row.normalized_data.get("primary_rm_id")
+        primary_rm_id = UUID(raw_primary_rm_id) if raw_primary_rm_id is not None else None
         can_number = row.normalized_data["can_number"]
         family = family_repo.find_active_family_by_code(db, family_code)
+        if family is None and family_code is None:
+            matches = family_repo.find_active_families_by_head_and_rm(
+                db,
+                family_head_name=family_head_name,
+                primary_rm_id=primary_rm_id,
+            )
+            if len(matches) == 1:
+                family = matches[0]
+            elif len(matches) > 1:
+                row.status = ImportRowStatus.CONFLICT
+                row.errors.append("FamilyHeadName/PrimaryRM: multiple active families match this row.")
+                continue
         member = member_repo.find_active_member_by_can(db, can_number)
         if family is not None:
             row.family_id = family.id
         if member is not None:
             row.member_id = member.id
-            if member.family.family_code != family_code:
+            if family is not None and member.family_id != family.id:
                 row.status = ImportRowStatus.CONFLICT
                 row.errors.append(f"CANNumber: existing CAN belongs to family {member.family.family_code}.")
+            elif family is None and family_code is None:
+                if (
+                    member.family.family_head_name.strip().lower() == family_head_name.strip().lower()
+                    and member.family.primary_rm_id == primary_rm_id
+                ):
+                    row.family_id = member.family_id
+                else:
+                    row.status = ImportRowStatus.CONFLICT
+                    row.errors.append(f"CANNumber: existing CAN belongs to family {member.family.family_code}.")
 
 
 def _safe_raw_data(raw_data: dict[str, str]) -> dict[str, str | None]:
@@ -510,7 +587,7 @@ def upload_mfu_template(
         return _batch_to_response(batch)
 
     batch.warnings = gateway.warnings
-    missing_headers = [header for header in TEMPLATE_COLUMNS if header not in set(gateway.headers)]
+    missing_headers = [header for header in REQUIRED_TEMPLATE_COLUMNS if header not in set(gateway.headers)]
     if missing_headers:
         batch.status = ImportBatchStatus.FAILED
         batch.errors = [f"Missing required headers: {', '.join(missing_headers)}"]
@@ -662,19 +739,20 @@ def _apply_import_member_data(
 ) -> None:
     if is_new:
         member.can_number = data["can_number"]
+    member.can_status = data["can_status"]
     member.name = data["member_name"]
     _set_member_protected_field_from_stored(member, "pan", stored_data)
     member.date_of_birth = _date_value(data["date_of_birth"])
     member.kyc_status = data["kyc_status"]
     _set_member_protected_field_from_stored(member, "mobile", stored_data)
-    member.mobile_status = data["mobile_status"]
+    member.mobile_verification_status = data["mobile_verification_status"]
     _set_member_protected_field_from_stored(member, "email", stored_data)
-    member.email_status = data["email_status"]
-    member.nominee_status = data["nominee_status"]
+    member.email_verification_status = data["email_verification_status"]
+    member.nominee_verification_status = data["nominee_verification_status"]
     member.bank_name = data["bank_name"]
     _set_member_protected_field_from_stored(member, "bank_account_number", stored_data)
     member.ifsc_code = data["ifsc_code"]
-    member.payeezz_status = data["payeezz_status"]
+    member.payeezz_mandate_status = data["payeezz_mandate_status"]
     member.payeezz_amount = _decimal_value(data["payeezz_amount"])
     member.payeezz_start_date = _date_value(data["payeezz_start_date"])
     if is_new or data.get("remarks"):
@@ -708,6 +786,26 @@ def _mark_commit_conflict(row: ImportRow, message: str) -> None:
     row.member_id = None
 
 
+def _family_for_import_row(db: Session, row: ImportRow, data: dict[str, Any], rm: User | None) -> Family | None:
+    family_code = data.get("family_code")
+    if family_code is not None:
+        return family_repo.find_active_family_by_code(db, family_code)
+    if row.family_id is not None:
+        family = db.get(Family, row.family_id)
+        if family is not None and family.deleted_at is None:
+            return family
+    matches = family_repo.find_active_families_by_head_and_rm(
+        db,
+        family_head_name=data["family_head_name"],
+        primary_rm_id=rm.id if rm is not None else None,
+    )
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        _mark_commit_conflict(row, "FamilyHeadName/PrimaryRM: multiple active families match this row.")
+    return None
+
+
 def commit_import_batch(
     db: Session,
     *,
@@ -732,28 +830,48 @@ def commit_import_batch(
     for row in sorted(valid_rows, key=lambda item: item.row_number):
         stored_data = row.normalized_data
         data = _row_data_for_commit(stored_data, settings)
-        rm = _active_rm_by_id(db, data.get("primary_rm_id"))
-        if rm is None:
+        raw_primary_rm_id = data.get("primary_rm_id")
+        rm = _active_rm_by_id(db, raw_primary_rm_id)
+        if raw_primary_rm_id is not None and rm is None:
             row.status = ImportRowStatus.ERROR
             row.errors = [*row.errors, "PrimaryRM: active RM user no longer exists."]
             continue
 
-        family_code = data["family_code"]
         can_number = data["can_number"]
         existing_member = member_repo.find_active_member_by_can(db, can_number)
-        family = family_repo.find_active_family_by_code(db, family_code)
-        if existing_member is not None and existing_member.family.family_code != family_code:
+        family = _family_for_import_row(db, row, data, rm)
+        if row.status == ImportRowStatus.CONFLICT:
+            continue
+        if existing_member is not None and family is not None and existing_member.family_id != family.id:
             _mark_commit_conflict(
                 row,
                 f"CANNumber: existing CAN belongs to family {existing_member.family.family_code}.",
             )
             continue
+        if existing_member is not None and family is None and data.get("family_code") is not None:
+            _mark_commit_conflict(
+                row,
+                f"CANNumber: existing CAN belongs to family {existing_member.family.family_code}.",
+            )
+            continue
+        if existing_member is not None and family is None and data.get("family_code") is None:
+            if (
+                existing_member.family.family_head_name.strip().lower() == data["family_head_name"].strip().lower()
+                and existing_member.family.primary_rm_id == (rm.id if rm is not None else None)
+            ):
+                family = existing_member.family
+            else:
+                _mark_commit_conflict(
+                    row,
+                    f"CANNumber: existing CAN belongs to family {existing_member.family.family_code}.",
+                )
+                continue
 
         if family is None:
             family = Family(
-                family_code=family_code,
+                family_code=data.get("family_code") or generate_family_code(db),
                 family_head_name=data["family_head_name"],
-                primary_rm_id=rm.id,
+                primary_rm_id=rm.id if rm is not None else None,
                 remarks=data.get("family_remarks"),
             )
             db.add(family)
@@ -775,7 +893,7 @@ def commit_import_batch(
                 "remarks": family.remarks,
             }
             family.family_head_name = data["family_head_name"]
-            family.primary_rm_id = rm.id
+            family.primary_rm_id = rm.id if rm is not None else None
             if data.get("family_remarks"):
                 family.remarks = data["family_remarks"]
             db.flush()

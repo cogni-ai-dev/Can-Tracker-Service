@@ -12,18 +12,22 @@ from app.domain.compliance import (
 
 
 def member(
-    kyc: str = "Validated",
-    payeezz: str = "Aggregator Accepted",
+    kyc: str = "Verified",
+    payeezz: str = "Approved",
     mobile: str = "Verified",
     email: str = "Verified",
     nominee: str = "Verified",
-) -> dict[str, str]:
+    can_number: str | None = "CAN-001",
+    can_status: str = "Available",
+) -> dict[str, object]:
     return {
+        "can_number": can_number,
+        "can_status": can_status,
         "kyc_status": kyc,
-        "payeezz_status": payeezz,
-        "mobile_status": mobile,
-        "email_status": email,
-        "nominee_status": nominee,
+        "payeezz_mandate_status": payeezz,
+        "mobile_verification_status": mobile,
+        "email_verification_status": email,
+        "nominee_verification_status": nominee,
     }
 
 
@@ -45,77 +49,77 @@ class ComplianceMetricTests(unittest.TestCase):
     def test_kyc_counts_pending_and_completion(self) -> None:
         metrics = kyc_counts(
             [
-                member(kyc="Validated"),
-                member(kyc="Validated"),
-                member(kyc="Registered"),
-                member(kyc="No KYC"),
+                member(kyc="Verified"),
+                member(kyc="Verified"),
+                member(kyc="Pending Re-KYC"),
+                member(kyc="Not Started"),
             ]
         )
 
         self.assertEqual(metrics.total_members, 4)
-        self.assertEqual(metrics.validated.count, 2)
-        self.assertEqual(metrics.validated.percentage, 50)
-        self.assertEqual(metrics.registered.count, 1)
-        self.assertEqual(metrics.no_kyc.count, 1)
+        self.assertEqual(metrics.verified.count, 2)
+        self.assertEqual(metrics.verified.percentage, 50)
+        self.assertEqual(metrics.pending_rekyc.count, 1)
+        self.assertEqual(metrics.not_started.count, 1)
         self.assertEqual(metrics.pending.count, 2)
         self.assertEqual(metrics.pending.percentage, 50)
         self.assertEqual(metrics.completion.count, 2)
         self.assertEqual(metrics.completion.percentage, 50)
 
     def test_deleted_members_are_excluded_from_metrics(self) -> None:
-        deleted_pending = {**member(kyc="No KYC"), "deleted_at": "2026-01-01T00:00:00Z"}
+        deleted_pending = {**member(kyc="Not Started"), "deleted_at": "2026-01-01T00:00:00Z"}
 
-        metrics = kyc_counts([member(kyc="Validated"), deleted_pending])
+        metrics = kyc_counts([member(kyc="Verified"), deleted_pending])
 
         self.assertEqual(metrics.total_members, 1)
-        self.assertEqual(metrics.validated.count, 1)
+        self.assertEqual(metrics.verified.count, 1)
         self.assertEqual(metrics.pending.count, 0)
 
     def test_payeezz_counts_pending_and_completion(self) -> None:
         metrics = payeezz_counts(
             [
-                member(payeezz="Aggregator Accepted"),
-                member(payeezz="Sent for Approval"),
-                member(payeezz="Not Available"),
-                member(payeezz="Not Available"),
+                member(payeezz="Approved"),
+                member(payeezz="Pending Approval"),
+                member(payeezz="Not Started"),
+                member(payeezz="Not Started"),
             ]
         )
 
         self.assertEqual(metrics.total_members, 4)
-        self.assertEqual(metrics.aggregator_accepted.count, 1)
-        self.assertEqual(metrics.aggregator_accepted.percentage, 25)
-        self.assertEqual(metrics.sent_for_approval.count, 1)
-        self.assertEqual(metrics.not_available.count, 2)
+        self.assertEqual(metrics.approved.count, 1)
+        self.assertEqual(metrics.approved.percentage, 25)
+        self.assertEqual(metrics.pending_approval.count, 1)
+        self.assertEqual(metrics.not_started.count, 2)
         self.assertEqual(metrics.pending.count, 3)
         self.assertEqual(metrics.pending.percentage, 75)
         self.assertEqual(metrics.completion.count, 1)
 
     def test_mobile_verification_counts(self) -> None:
         metrics = mobile_verification_counts(
-            [member(mobile="Verified"), member(mobile="Not Verified"), member(mobile="Not Verified")]
+            [member(mobile="Verified"), member(mobile="Pending Verification"), member(mobile="Pending Verification")]
         )
 
         self.assertEqual(metrics.verified.count, 1)
         self.assertEqual(metrics.verified.percentage, 33)
-        self.assertEqual(metrics.not_verified.count, 2)
+        self.assertEqual(metrics.pending_verification.count, 2)
         self.assertEqual(metrics.pending.percentage, 67)
 
     def test_email_verification_counts(self) -> None:
         metrics = email_verification_counts(
-            [member(email="Verified"), member(email="Verified"), member(email="Not Verified")]
+            [member(email="Verified"), member(email="Verified"), member(email="Pending Verification")]
         )
 
         self.assertEqual(metrics.verified.count, 2)
         self.assertEqual(metrics.completion.percentage, 67)
-        self.assertEqual(metrics.not_verified.count, 1)
+        self.assertEqual(metrics.pending_verification.count, 1)
 
     def test_nominee_verification_counts(self) -> None:
         metrics = nominee_verification_counts(
             [
                 member(nominee="Verified"),
-                member(nominee="Not Verified"),
-                member(nominee="Not Verified"),
-                member(nominee="Not Verified"),
+                member(nominee="Pending Verification"),
+                member(nominee="Pending Verification"),
+                member(nominee="Pending Verification"),
             ]
         )
 
@@ -127,13 +131,13 @@ class ComplianceMetricTests(unittest.TestCase):
         completion = family_completion(
             [
                 member(),
-                member(email="Not Verified", nominee="Not Verified", payeezz="Sent for Approval"),
+                member(email="Pending Verification", nominee="Pending Verification", payeezz="Pending Approval"),
                 member(
-                    kyc="No KYC",
-                    mobile="Not Verified",
-                    email="Not Verified",
-                    nominee="Not Verified",
-                    payeezz="Not Available",
+                    kyc="Not Started",
+                    mobile="Pending Verification",
+                    email="Pending Verification",
+                    nominee="Pending Verification",
+                    payeezz="Not Started",
                 ),
             ]
         )
@@ -157,6 +161,18 @@ class ComplianceMetricTests(unittest.TestCase):
         self.assertEqual(completion.mobile_verification_pct, 0)
         self.assertEqual(completion.email_verification_pct, 0)
         self.assertEqual(completion.nominee_verification_pct, 0)
+
+    def test_family_completion_counts_only_available_cans(self) -> None:
+        completion = family_completion(
+            [
+                member(can_number="CAN-1", can_status="Available"),
+                member(can_number=None, can_status="Pending"),
+                member(can_number="CAN-2", can_status="Available"),
+            ]
+        )
+
+        self.assertEqual(completion.total_members, 3)
+        self.assertEqual(completion.total_cans, 2)
 
 
 if __name__ == "__main__":

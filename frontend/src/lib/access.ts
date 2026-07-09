@@ -53,7 +53,11 @@ export function canEditMember(user: CurrentUser | null) {
 }
 
 export function canDeleteMember(user: CurrentUser | null) {
-  return hasModuleRole(user, 'can_compliance', ['can_admin', 'can_ops']);
+  return hasModuleRole(user, 'can_compliance', ['can_admin']);
+}
+
+export function canDeleteFamily(user: CurrentUser | null) {
+  return hasModuleRole(user, 'can_compliance', ['can_admin']);
 }
 
 const legacyUserRoleToCanRole: Record<UserRole, ModuleRole> = {

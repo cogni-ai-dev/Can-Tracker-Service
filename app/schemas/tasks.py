@@ -23,7 +23,7 @@ class TaskRead(BaseModel):
     family_id: UUID
     family_head_name: str
     family_code: str
-    rm_id: UUID
+    rm_id: UUID | None
     rm_name: str
     can_number_masked: str
     description: str

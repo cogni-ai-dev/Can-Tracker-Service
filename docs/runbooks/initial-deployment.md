@@ -1,6 +1,6 @@
 # Initial Deployment
 
-This runbook deploys the API and PostgreSQL on one cloud VM with Docker Compose.
+This runbook deploys the UI, API, and PostgreSQL on one cloud VM with Docker Compose.
 
 ## Prerequisites
 
@@ -31,33 +31,52 @@ Production values must satisfy:
 - `DATABASE_SCHEMA=can_tracker`
 - `CORS_ORIGINS=https://<production-domain>`
 - `BACKUP_RETENTION_DAYS` is at least `14`
-- `API_BIND=0.0.0.0` for direct Compose access on port `8001`; use `127.0.0.1` when a local reverse proxy is the only public entrypoint.
+- `API_BIND=0.0.0.0` for direct Compose access on port `8002`; use `127.0.0.1` when a local reverse proxy is the only public entrypoint.
+- `UI_BIND=0.0.0.0` for direct Compose access on port `3002`; use `127.0.0.1` when a local reverse proxy is the only public entrypoint.
+- `API_UPSTREAM=http://can-tracker-service:8002`
 
 ## Deploy
 
+If runtime values are in the root `.env`, run from the repository root:
+
 ```bash
 docker compose -f docker/can-postgres/docker-compose.yml up -d
-docker compose --env-file .env -f docker/can-tracker-service/docker-compose.yml build api
-docker compose --env-file .env -f docker/can-tracker-service/docker-compose.yml up -d api
+docker compose -f docker/can-tracker-service/docker-compose.yml up -d --build
+docker compose -f docker/can-tracker-ui/docker-compose.yml up -d --build
 ```
 
-The API container runs `alembic upgrade head` before starting Uvicorn.
+If runtime values are in local ignored `docker-compose.override.yml` files, run
+Compose from each service directory so the override is auto-loaded:
+
+```bash
+docker compose -f docker/can-postgres/docker-compose.yml up -d
+(cd docker/can-tracker-service && docker compose up -d --build)
+(cd docker/can-tracker-ui && docker compose up -d --build)
+```
+
+The API container runs `alembic upgrade head` before starting Uvicorn. The API
+Compose file creates `can-tracker-local`; the UI Compose file joins that shared
+network and proxies `/api` to `can-tracker-service`.
 
 ## Verify
 
 ```bash
 docker compose -f docker/can-postgres/docker-compose.yml ps
-docker compose --env-file .env -f docker/can-tracker-service/docker-compose.yml ps
-docker compose --env-file .env -f docker/can-tracker-service/docker-compose.yml logs --tail=100 api
-curl -fsS http://127.0.0.1:8001/health
-curl -fsS http://127.0.0.1:8001/ready
-curl -fsS http://127.0.0.1:8001/api/v1/meta
+docker compose -f docker/can-tracker-service/docker-compose.yml ps
+docker compose -f docker/can-tracker-ui/docker-compose.yml ps
+docker compose -f docker/can-tracker-service/docker-compose.yml logs --tail=100
+docker compose -f docker/can-tracker-ui/docker-compose.yml logs --tail=100
+curl -fsS http://127.0.0.1:8002/health
+curl -fsS http://127.0.0.1:8002/ready
+curl -fsS http://127.0.0.1:8002/api/v1/meta
+curl -fsS http://127.0.0.1:3002/health
 ```
 
 Expected results:
 
 - `postgres` is healthy.
-- `api` is healthy.
+- `can-tracker-service` is healthy.
+- `can-tracker-ui` is healthy.
 - `/health` returns `{"status":"ok"}`.
 - `/ready` returns `{"status":"ready"}`.
 - API logs are JSON in production and include `request_id`.

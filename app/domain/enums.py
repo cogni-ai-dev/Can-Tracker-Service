@@ -14,21 +14,26 @@ class CanonicalStrEnum(str, Enum):
         return self.value
 
 
+class CanStatus(CanonicalStrEnum):
+    PENDING = "Pending"
+    AVAILABLE = "Available"
+
+
 class KycStatus(CanonicalStrEnum):
-    VALIDATED = "Validated"
-    REGISTERED = "Registered"
-    NO_KYC = "No KYC"
+    NOT_STARTED = "Not Started"
+    PENDING_REKYC = "Pending Re-KYC"
+    VERIFIED = "Verified"
 
 
 class VerificationStatus(CanonicalStrEnum):
+    PENDING_VERIFICATION = "Pending Verification"
     VERIFIED = "Verified"
-    NOT_VERIFIED = "Not Verified"
 
 
 class PayeezzStatus(CanonicalStrEnum):
-    NOT_AVAILABLE = "Not Available"
-    SENT_FOR_APPROVAL = "Sent for Approval"
-    AGGREGATOR_ACCEPTED = "Aggregator Accepted"
+    NOT_STARTED = "Not Started"
+    PENDING_APPROVAL = "Pending Approval"
+    APPROVED = "Approved"
 
 
 class TaskType(CanonicalStrEnum):
